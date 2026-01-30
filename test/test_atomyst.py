@@ -527,5 +527,59 @@ def baz():
             assert defn.name in init.content
 
 
+# =============================================================================
+# UNIT TESTS: render_extraction_text / render_extraction_json (Pure functions)
+# =============================================================================
+
+
+class TestRenderExtraction:
+    """Test rendering of extraction results for CLI output."""
+
+    def test_render_extraction_text_dry_run(self) -> None:
+        """Text output for dry-run shows extracted content and remainder preview."""
+        from atomyst import render_extraction_text
+
+        result = ExtractionResult(
+            extracted=OutputFile(relative_path="foo.py", content="class Foo:\n    pass\n"),
+            remainder="# remaining code\ndef bar():\n    pass\n",
+        )
+        output = render_extraction_text(result, name="Foo", dry_run=True)
+
+        assert "Foo" in output
+        assert "foo.py" in output
+        assert "class Foo:" in output
+        assert "remainder" in output.lower() or "remaining" in output.lower()
+
+    def test_render_extraction_text_written(self) -> None:
+        """Text output for actual write shows written path."""
+        from atomyst import render_extraction_text
+
+        result = ExtractionResult(
+            extracted=OutputFile(relative_path="foo.py", content="class Foo:\n    pass\n"),
+            remainder="def bar():\n    pass\n",
+        )
+        output = render_extraction_text(result, name="Foo", dry_run=False, written_path=Path("/out/foo.py"))
+
+        assert "/out/foo.py" in output or "foo.py" in output
+
+    def test_render_extraction_json(self) -> None:
+        """JSON output contains extracted content and remainder."""
+        import json
+
+        from atomyst import render_extraction_json
+
+        result = ExtractionResult(
+            extracted=OutputFile(relative_path="foo.py", content="class Foo:\n    pass\n"),
+            remainder="def bar():\n    pass\n",
+        )
+        output = render_extraction_json(result, name="Foo")
+        data = json.loads(output)
+
+        assert data["name"] == "Foo"
+        assert data["extracted"]["relative_path"] == "foo.py"
+        assert "class Foo:" in data["extracted"]["content"]
+        assert "def bar():" in data["remainder"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

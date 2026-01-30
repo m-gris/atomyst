@@ -396,6 +396,55 @@ def render_error(message: str) -> str:
     return f"Error: {message}"
 
 
+def render_extraction_text(
+    result: ExtractionResult,
+    name: str,
+    dry_run: bool,
+    written_path: Path | None = None,
+) -> str:
+    """
+    Render extraction result as human-readable text.
+
+    Pure: (ExtractionResult, str, bool, Path | None) -> str
+    """
+    lines: list[str] = []
+
+    if dry_run:
+        lines.append(f"[DRY RUN] Would extract '{name}' to {result.extracted.relative_path}")
+        lines.append("")
+        lines.append("--- Extracted content ---")
+        lines.append(result.extracted.content.rstrip())
+        lines.append("")
+        lines.append("--- Remainder preview (first 20 lines) ---")
+        remainder_lines = result.remainder.splitlines()[:20]
+        lines.extend(remainder_lines)
+        if len(result.remainder.splitlines()) > 20:
+            lines.append(f"... ({len(result.remainder.splitlines()) - 20} more lines)")
+    else:
+        lines.append(f"Extracted '{name}' to {written_path or result.extracted.relative_path}")
+
+    return "\n".join(lines)
+
+
+def render_extraction_json(result: ExtractionResult, name: str) -> str:
+    """
+    Render extraction result as JSON.
+
+    Pure: (ExtractionResult, str) -> str
+    """
+    import json
+
+    data = {
+        "name": name,
+        "extracted": {
+            "relative_path": result.extracted.relative_path,
+            "content": result.extracted.content,
+        },
+        "remainder": result.remainder,
+    }
+    return json.dumps(data, indent=2)
+
+
 # =============================================================================
 # ACTIONS (Effects) - I/O happens here only
 # =============================================================================
@@ -472,6 +521,49 @@ def run(
     return (0, output)
 
 
+def run_extract_one(
+    source_path: Path,
+    name: str,
+    output_dir: Path | None,
+    dry_run: bool,
+    output_format: Literal["text", "json"],
+) -> tuple[int, str]:
+    """
+    Run single extraction. Returns (exit_code, output_to_display).
+
+    Extracts one definition by name, writes to output_dir (or current dir).
+    """
+    if not source_path.exists():
+        return (1, render_error(f"{source_path} does not exist"))
+
+    resolved_output_dir = output_dir or Path.cwd()
+
+    # ACTION: Read
+    source = read_source(source_path)
+
+    # COMPUTATION: Extract (pure)
+    result = extract_one(source, name)
+
+    if result is None:
+        return (1, render_error(f"Definition '{name}' not found in {source_path}"))
+
+    # ACTION: Write (or skip if dry-run)
+    written_path = None
+    if not dry_run:
+        out_path = resolved_output_dir / result.extracted.relative_path
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(result.extracted.content)
+        written_path = out_path
+
+    # RENDER: Data -> str (pure)
+    if output_format == "json":
+        output = render_extraction_json(result, name)
+    else:
+        output = render_extraction_text(result, name, dry_run, written_path)
+
+    return (0, output)
+
+
 def main() -> int:
     """Entry point. Parses args, calls run(), prints once, exits."""
     import argparse
@@ -496,16 +588,30 @@ def main() -> int:
         default="text",
         help="Output format (default: text)",
     )
+    parser.add_argument(
+        "--extract",
+        metavar="NAME",
+        help="Extract a single definition by name (incremental mode)",
+    )
 
     args = parser.parse_args()
 
-    # Run (returns data)
-    exit_code, output = run(
-        source_path=args.source,
-        output_dir=args.output,
-        dry_run=args.dry_run,
-        output_format=args.format,
-    )
+    # Dispatch: incremental or batch mode
+    if args.extract:
+        exit_code, output = run_extract_one(
+            source_path=args.source,
+            name=args.extract,
+            output_dir=args.output,
+            dry_run=args.dry_run,
+            output_format=args.format,
+        )
+    else:
+        exit_code, output = run(
+            source_path=args.source,
+            output_dir=args.output,
+            dry_run=args.dry_run,
+            output_format=args.format,
+        )
 
     # Single print at the edge
     print(output)
