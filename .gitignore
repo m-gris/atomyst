@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+
+# OCaml
+_build/
+*.byte
+*.native
+*.cmo
+*.cmi
+*.cma
+*.cmx
+*.cmxa
+*.o
+*.a
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Beads internal state (not synced)
+.beads/beads.db
+.beads/beads.db-wal
+.beads/beads.db-shm
+.beads/export-state/
+.beads/metadata.json
+.beads/interactions.jsonl
+
+# OS
+.DS_Store
+
+# Local files
+AGENT.md
+AGENTS.md
