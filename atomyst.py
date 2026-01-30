@@ -140,7 +140,7 @@ def extract_imports(lines: Sequence[str]) -> tuple[str, ...]:
     Extract all import lines from the beginning of the file.
 
     Includes:
-    - Module docstrings and shebangs
+    - Module docstrings and shebangs (including multi-line)
     - import and from statements
     - Multi-line imports (parenthesized)
     - TYPE_CHECKING blocks (if TYPE_CHECKING: ...)
@@ -152,9 +152,19 @@ def extract_imports(lines: Sequence[str]) -> tuple[str, ...]:
     paren_depth = 0
     in_type_checking = False
     type_checking_indent = 0
+    in_docstring = False
+    docstring_delimiter: str | None = None
 
     for line in lines:
         stripped = line.strip()
+
+        # Handle multi-line docstring continuation
+        if in_docstring:
+            result.append(line)
+            if docstring_delimiter and docstring_delimiter in stripped:
+                in_docstring = False
+                docstring_delimiter = None
+            continue
 
         # Handle TYPE_CHECKING block
         if in_type_checking:
@@ -187,6 +197,14 @@ def extract_imports(lines: Sequence[str]) -> tuple[str, ...]:
             or stripped.startswith("'''")
         ):
             result.append(line)
+            # Check for multi-line docstring
+            for delim in ('"""', "'''"):
+                if stripped.startswith(delim):
+                    # Count occurrences - if only one, it's multi-line
+                    if stripped.count(delim) == 1:
+                        in_docstring = True
+                        docstring_delimiter = delim
+                    break
             continue
 
         # Import statement

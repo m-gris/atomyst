@@ -243,6 +243,26 @@ class TestExtractImports:
         assert "    from heavy import HeavyType\n" in imports
         assert "    from another import AnotherType\n" in imports
 
+    def test_multiline_docstring(self) -> None:
+        """Multi-line module docstrings should not break import extraction (GH#1)."""
+        lines = [
+            '# mypy: disable-error-code="explicit-any"\n',
+            '"""\n',
+            "Multi-line docstring\n",
+            "spanning many lines.\n",
+            '"""\n',
+            "\n",
+            "import hashlib\n",
+            "from typing import List\n",
+            "\n",
+            "class Foo:\n",
+        ]
+        imports = extract_imports(lines)
+        assert '"""\n' in imports  # Opening docstring
+        assert "Multi-line docstring\n" in imports  # Middle
+        assert "import hashlib\n" in imports  # Imports after docstring
+        assert "from typing import List\n" in imports
+
 
 # =============================================================================
 # UNIT TESTS: find_comment_start (Pure function)
