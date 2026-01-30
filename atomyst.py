@@ -77,6 +77,14 @@ class AtomizeOutcome:
     output_dir: Path
 
 
+@dataclass(frozen=True)
+class ExtractionResult:
+    """Result of extracting a single definition (pure data)."""
+
+    extracted: OutputFile  # The extracted definition
+    remainder: str  # The source with definition removed
+
+
 # =============================================================================
 # PURE FUNCTIONS (Computations) - No I/O, no side effects, no printing
 # =============================================================================
@@ -263,6 +271,45 @@ def build_init_file(definitions: Sequence[Definition]) -> OutputFile:
     lines.append("]\n")
 
     return OutputFile(relative_path="__init__.py", content="".join(lines))
+
+
+def extract_one(source: str, name: str) -> ExtractionResult | None:
+    """
+    Extract a single definition by name from source.
+
+    Returns the extracted definition as an OutputFile and the remaining source.
+    Returns None if the definition is not found.
+
+    Pure: (str, str) -> ExtractionResult | None
+    """
+    lines = source.splitlines(keepends=True)
+    definitions = extract_definitions(source)
+    import_lines = extract_imports(lines)
+    import_block = "".join(import_lines)
+
+    # Find the definition by name
+    target = None
+    for defn in definitions:
+        if defn.name == name:
+            target = defn
+            break
+
+    if target is None:
+        return None
+
+    # Build the extracted file
+    extracted = build_definition_file(target, lines, import_block)
+
+    # Build the remainder (source with definition removed)
+    actual_start = find_comment_start(lines, target.start_line)
+    before = lines[: actual_start - 1]
+    after = lines[target.end_line :]
+
+    # Clean up extra blank lines at the junction
+    remainder_lines = before + after
+    remainder = "".join(remainder_lines)
+
+    return ExtractionResult(extracted=extracted, remainder=remainder)
 
 
 def plan_atomization(source: str, source_name: str) -> AtomizePlan:

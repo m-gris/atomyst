@@ -21,10 +21,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from atomyst import (
     Definition,
     DefinitionKind,
+    ExtractionResult,
     OutputFile,
     build_init_file,
     extract_definitions,
     extract_imports,
+    extract_one,
     find_comment_start,
     plan_atomization,
     to_snake_case,
@@ -286,6 +288,67 @@ class TestFindCommentStart:
 
 
 # =============================================================================
+# UNIT TESTS: extract_one (Pure function)
+# =============================================================================
+
+
+class TestExtractOne:
+    """Test incremental single-definition extraction."""
+
+    def test_extract_first(self) -> None:
+        source = '''"""Module."""
+
+from dataclasses import dataclass
+
+
+@dataclass
+class Foo:
+    x: int
+
+
+@dataclass
+class Bar:
+    y: str
+'''
+        result = extract_one(source, "Foo")
+        assert result is not None
+        assert result.extracted.relative_path == "foo.py"
+        assert "class Foo:" in result.extracted.content
+        assert "class Bar:" not in result.extracted.content
+        assert "class Foo:" not in result.remainder
+        assert "class Bar:" in result.remainder
+
+    def test_extract_second(self) -> None:
+        source = '''"""Module."""
+
+from dataclasses import dataclass
+
+
+@dataclass
+class Foo:
+    x: int
+
+
+@dataclass
+class Bar:
+    y: str
+'''
+        result = extract_one(source, "Bar")
+        assert result is not None
+        assert result.extracted.relative_path == "bar.py"
+        assert "class Bar:" in result.extracted.content
+        assert "class Foo:" in result.remainder
+        assert "class Bar:" not in result.remainder
+
+    def test_extract_not_found(self) -> None:
+        source = '''class Foo:
+    pass
+'''
+        result = extract_one(source, "NotExist")
+        assert result is None
+
+
+# =============================================================================
 # UNIT TESTS: build_init_file (Pure function)
 # =============================================================================
 
@@ -321,11 +384,13 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def get_fixture_dirs() -> list[Path]:
-    """Get all fixture directories."""
+    """Get all batch fixture directories (those with expected/ subdir)."""
     if not FIXTURES_DIR.exists():
         return []
     return sorted(
-        d for d in FIXTURES_DIR.iterdir() if d.is_dir() and (d / "input.py").exists()
+        d
+        for d in FIXTURES_DIR.iterdir()
+        if d.is_dir() and (d / "input.py").exists() and (d / "expected").exists()
     )
 
 
@@ -377,6 +442,44 @@ class TestFixtures:
 
         # Compare normalized (ignoring whitespace differences)
         assert init_file.content.strip() == expected_init.strip()
+
+
+# =============================================================================
+# INTEGRATION TESTS: Incremental Extraction Fixtures
+# =============================================================================
+
+
+INCREMENTAL_FIXTURE = FIXTURES_DIR / "10_incremental"
+
+
+class TestIncrementalFixtures:
+    """Test incremental extraction using fixtures."""
+
+    def test_extract_foo(self) -> None:
+        """Extract Foo, verify extracted and remainder."""
+        input_file = INCREMENTAL_FIXTURE / "input.py"
+        expected_foo = INCREMENTAL_FIXTURE / "extract_foo" / "expected_foo.py"
+        expected_remainder = INCREMENTAL_FIXTURE / "extract_foo" / "expected_remainder.py"
+
+        source = input_file.read_text()
+        result = extract_one(source, "Foo")
+
+        assert result is not None
+        assert result.extracted.content.strip() == expected_foo.read_text().strip()
+        assert result.remainder.strip() == expected_remainder.read_text().strip()
+
+    def test_extract_bar(self) -> None:
+        """Extract Bar, verify extracted and remainder."""
+        input_file = INCREMENTAL_FIXTURE / "input.py"
+        expected_bar = INCREMENTAL_FIXTURE / "extract_bar" / "expected_bar.py"
+        expected_remainder = INCREMENTAL_FIXTURE / "extract_bar" / "expected_remainder.py"
+
+        source = input_file.read_text()
+        result = extract_one(source, "Bar")
+
+        assert result is not None
+        assert result.extracted.content.strip() == expected_bar.read_text().strip()
+        assert result.remainder.strip() == expected_remainder.read_text().strip()
 
 
 # =============================================================================
