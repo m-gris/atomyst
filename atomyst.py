@@ -131,15 +131,48 @@ def extract_imports(lines: Sequence[str]) -> tuple[str, ...]:
     """
     Extract all import lines from the beginning of the file.
 
+    Includes:
+    - Module docstrings and shebangs
+    - import and from statements
+    - Multi-line imports (parenthesized)
+    - TYPE_CHECKING blocks (if TYPE_CHECKING: ...)
+
     Pure: Sequence[str] -> tuple[str, ...]
     """
     result: list[str] = []
     in_imports = False
     paren_depth = 0
+    in_type_checking = False
+    type_checking_indent = 0
 
     for line in lines:
         stripped = line.strip()
 
+        # Handle TYPE_CHECKING block
+        if in_type_checking:
+            # Calculate indentation of current line
+            if stripped:
+                current_indent = len(line) - len(line.lstrip())
+                if current_indent > type_checking_indent:
+                    result.append(line)
+                    continue
+                else:
+                    # Block ended
+                    in_type_checking = False
+            else:
+                # Empty line inside block
+                result.append(line)
+                continue
+
+        # Detect start of TYPE_CHECKING block
+        if stripped.startswith("if TYPE_CHECKING") or stripped == "if TYPE_CHECKING:":
+            in_type_checking = True
+            type_checking_indent = len(line) - len(line.lstrip())
+            result.append(line)
+            in_imports = True
+            continue
+
+        # Module docstring or shebang at start
         if not in_imports and (
             stripped.startswith("#")
             or stripped.startswith('"""')
@@ -148,21 +181,25 @@ def extract_imports(lines: Sequence[str]) -> tuple[str, ...]:
             result.append(line)
             continue
 
+        # Import statement
         if stripped.startswith(("import ", "from ")):
             in_imports = True
             result.append(line)
             paren_depth += line.count("(") - line.count(")")
             continue
 
+        # Continuation of multi-line import
         if paren_depth > 0:
             result.append(line)
             paren_depth += line.count("(") - line.count(")")
             continue
 
+        # Blank line in import section
         if in_imports and stripped == "":
             result.append(line)
             continue
 
+        # Non-import, non-comment line ends the import section
         if stripped and not stripped.startswith(("import ", "from ", "#")):
             break
 

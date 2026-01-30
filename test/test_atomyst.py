@@ -226,6 +226,21 @@ class TestExtractImports:
         imports = extract_imports(lines)
         assert "#!/usr/bin/env python3\n" in imports
 
+    def test_type_checking_block(self) -> None:
+        lines = [
+            "from typing import TYPE_CHECKING\n",
+            "\n",
+            "if TYPE_CHECKING:\n",
+            "    from heavy import HeavyType\n",
+            "    from another import AnotherType\n",
+            "\n",
+            "class Foo:\n",
+        ]
+        imports = extract_imports(lines)
+        assert "if TYPE_CHECKING:\n" in imports
+        assert "    from heavy import HeavyType\n" in imports
+        assert "    from another import AnotherType\n" in imports
+
 
 # =============================================================================
 # UNIT TESTS: find_comment_start (Pure function)
