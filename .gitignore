@@ -36,3 +36,4 @@ _build/
 # Local files
 AGENT.md
 AGENTS.md
+.venv/
