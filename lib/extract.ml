@@ -239,15 +239,15 @@ let process_line state line =
       let new_depth = state.paren_depth + count_char line '(' - count_char line ')' in
       add_line { state with paren_depth = new_depth }
 
-    (* Empty line - include if we're in imports section *)
-    else if stripped = "" then
+    (* Empty line after imports started - include it *)
+    else if state.in_imports && stripped = "" then
       add_line state
 
     (* Non-import, non-empty line after imports started - we're done *)
     else if state.in_imports then
       { state with done_extracting = true }
 
-    (* Non-import line before any imports - skip *)
+    (* Empty line or other line before imports - skip *)
     else
       state
 
@@ -257,3 +257,85 @@ let process_line state line =
 let extract_imports (lines : string list) : string list =
   let final_state = List.fold_left process_line initial_state lines in
   List.rev final_state.result
+
+(** Find where comments immediately preceding a definition begin.
+    Looks backwards from start_line to find contiguous comment lines.
+    Returns the adjusted start line (1-indexed). *)
+let find_comment_start lines start_line =
+  let arr = Array.of_list lines in
+  let rec scan idx =
+    if idx < 0 then idx + 2
+    else
+      let stripped = String.trim arr.(idx) in
+      if starts_with stripped "#" then scan (idx - 1)
+      else if stripped = "" then idx + 2
+      else idx + 2
+  in
+  scan (start_line - 2)
+
+(** Build an output file for a single definition.
+    Includes import block and any preceding comments. *)
+let build_definition_file defn lines import_block =
+  let actual_start = find_comment_start lines defn.start_line in
+  let arr = Array.of_list lines in
+  let defn_lines =
+    Array.sub arr (actual_start - 1) (defn.end_line - actual_start + 1)
+    |> Array.to_list
+  in
+  let defn_content = String.concat "" defn_lines in
+  (* Trim leading newlines from definition, then add proper spacing *)
+  let trimmed_content =
+    let s = defn_content in
+    let len = String.length s in
+    let rec find_start i =
+      if i >= len then len
+      else if s.[i] = '\n' then find_start (i + 1)
+      else i
+    in
+    String.sub s (find_start 0) (len - find_start 0)
+  in
+  let file_content = import_block ^ "\n\n" ^ trimmed_content in
+  let filename = Snake_case.to_snake_case defn.name ^ ".py" in
+  { relative_path = filename; content = file_content }
+
+(** Extract a single definition by name from source.
+    Returns None if the definition is not found.
+    Pure: (string, string) -> extraction_result option *)
+let extract_one source name =
+  (* Split source into lines, preserving original newline structure *)
+  let lines =
+    let parts = String.split_on_char '\n' source in
+    (* split_on_char "a\nb\n" gives ["a"; "b"; ""] - drop the trailing empty *)
+    let parts =
+      if String.length source > 0 && source.[String.length source - 1] = '\n' then
+        match List.rev parts with
+        | "" :: rest -> List.rev rest
+        | _ -> parts
+      else parts
+    in
+    List.map (fun s -> s ^ "\n") parts
+  in
+  let definitions : definition list = extract_definitions source in
+  let import_lines = extract_imports lines in
+  let import_block = String.concat "" import_lines in
+
+  (* Find the target definition *)
+  match List.find_opt (fun (d : definition) -> d.name = name) definitions with
+  | None -> None
+  | Some target ->
+    (* Build the extracted file *)
+    let extracted = build_definition_file target lines import_block in
+
+    (* Build the remainder (source with definition removed) *)
+    let actual_start = find_comment_start lines target.start_line in
+    let arr = Array.of_list lines in
+    let before = Array.sub arr 0 (actual_start - 1) |> Array.to_list in
+    let after =
+      if target.end_line < Array.length arr then
+        Array.sub arr target.end_line (Array.length arr - target.end_line)
+        |> Array.to_list
+      else []
+    in
+    let remainder = String.concat "" (before @ after) in
+
+    Some { extracted; remainder }

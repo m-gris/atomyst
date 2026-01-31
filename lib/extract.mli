@@ -39,3 +39,22 @@ val extract_imports : string list -> string list
       (* ["import os\n"] *)
     ]}
 *)
+
+val extract_one : string -> string -> extraction_result option
+(** [extract_one source name] extracts a single definition by name from source.
+
+    Returns the extracted definition as an output_file and the remaining source.
+    Returns None if the definition is not found.
+
+    The extracted file includes:
+    - Import block from the original source
+    - Any comments immediately preceding the definition
+    - The definition itself
+
+    Example:
+    {[
+      let result = extract_one "class Foo:\n    pass\n" "Foo" in
+      (* Some { extracted = { relative_path = "foo.py"; content = "..." };
+               remainder = "" } *)
+    ]}
+*)
