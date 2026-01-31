@@ -123,3 +123,137 @@ let extract_definitions source =
   |> filter_top_level
   |> dedupe_by_name
   |> to_definitions
+
+(** State for import extraction - immutable, threaded through fold *)
+type import_state = {
+  result : string list;       (** Accumulated lines (reversed) *)
+  in_imports : bool;          (** Have we seen any imports yet? *)
+  paren_depth : int;          (** Depth of parentheses for multi-line imports *)
+  in_type_checking : bool;    (** Inside TYPE_CHECKING block? *)
+  type_checking_indent : int; (** Indentation level of TYPE_CHECKING *)
+  in_docstring : bool;        (** Inside multi-line docstring? *)
+  docstring_delim : string option; (** Delimiter for current docstring *)
+  done_extracting : bool;     (** Stop processing further lines *)
+}
+
+let initial_state = {
+  result = [];
+  in_imports = false;
+  paren_depth = 0;
+  in_type_checking = false;
+  type_checking_indent = 0;
+  in_docstring = false;
+  docstring_delim = None;
+  done_extracting = false;
+}
+
+(** Helper: check if string starts with prefix *)
+let starts_with s prefix =
+  String.length s >= String.length prefix &&
+  String.sub s 0 (String.length prefix) = prefix
+
+(** Helper: check if string ends with suffix *)
+let ends_with s suffix =
+  String.length s >= String.length suffix &&
+  String.sub s (String.length s - String.length suffix) (String.length suffix) = suffix
+
+(** Helper: count occurrences of char in string *)
+let count_char s c =
+  String.fold_left (fun acc ch -> if ch = c then acc + 1 else acc) 0 s
+
+(** Helper: get indentation (number of leading spaces/tabs) *)
+let get_indent line =
+  let len = String.length line in
+  let rec count i =
+    if i >= len then i
+    else match line.[i] with
+      | ' ' | '\t' -> count (i + 1)
+      | _ -> i
+  in
+  count 0
+
+(** Process one line, returning new state *)
+let process_line state line =
+  if state.done_extracting then state
+  else
+    let stripped = String.trim line in
+    let add_line s = { s with result = line :: s.result } in
+
+    (* Handle multi-line docstring continuation *)
+    if state.in_docstring then
+      let closes_docstring = match state.docstring_delim with
+        | Some delim -> ends_with stripped delim
+        | None -> false
+      in
+      if closes_docstring then
+        add_line { state with in_docstring = false; docstring_delim = None }
+      else
+        add_line state
+
+    (* Handle TYPE_CHECKING block *)
+    else if state.in_type_checking then
+      if stripped = "" then
+        add_line state
+      else
+        let current_indent = get_indent line in
+        if current_indent > state.type_checking_indent then
+          add_line state
+        else
+          { state with in_type_checking = false; done_extracting = true }
+
+    (* Detect start of TYPE_CHECKING block *)
+    else if starts_with stripped "if TYPE_CHECKING" then
+      add_line { state with
+        in_type_checking = true;
+        type_checking_indent = get_indent line;
+        in_imports = true }
+
+    (* Module docstring or shebang at start (before any imports) *)
+    else if not state.in_imports && (
+      starts_with stripped "#" ||
+      starts_with stripped {|"""|} ||
+      starts_with stripped "'''"
+    ) then
+      (* Check if it's a multi-line docstring opening *)
+      let is_multiline_open delim =
+        starts_with stripped delim &&
+        count_char stripped delim.[0] = 3 &&
+        not (String.length stripped > 3 && ends_with stripped delim)
+      in
+      let docstring_delim =
+        if is_multiline_open {|"""|} then Some {|"""|}
+        else if is_multiline_open "'''" then Some "'''"
+        else None
+      in
+      add_line { state with
+        in_docstring = Option.is_some docstring_delim;
+        docstring_delim }
+
+    (* Import statement *)
+    else if starts_with stripped "import " || starts_with stripped "from " then
+      let new_depth = state.paren_depth + count_char line '(' - count_char line ')' in
+      add_line { state with in_imports = true; paren_depth = new_depth }
+
+    (* Continuation of multi-line import *)
+    else if state.paren_depth > 0 then
+      let new_depth = state.paren_depth + count_char line '(' - count_char line ')' in
+      add_line { state with paren_depth = new_depth }
+
+    (* Empty line - include if we're in imports section *)
+    else if stripped = "" then
+      add_line state
+
+    (* Non-import, non-empty line after imports started - we're done *)
+    else if state.in_imports then
+      { state with done_extracting = true }
+
+    (* Non-import line before any imports - skip *)
+    else
+      state
+
+(** Extract import block from beginning of file.
+    Handles docstrings, shebangs, imports, multi-line imports, TYPE_CHECKING blocks.
+    Pure: string list -> string list *)
+let extract_imports (lines : string list) : string list =
+  let final_state = List.fold_left process_line initial_state lines in
+  List.rev final_state.result

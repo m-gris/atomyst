@@ -22,3 +22,20 @@ val extract_definitions : string -> definition list
     ]}
 
     @raise Failure if tree-sitter parsing fails *)
+
+val extract_imports : string list -> string list
+(** [extract_imports lines] extracts the import block from the beginning
+    of a Python source file.
+
+    Includes:
+    - Module docstrings and shebangs (including multi-line)
+    - import and from statements
+    - Multi-line imports (parenthesized)
+    - TYPE_CHECKING blocks
+
+    Example:
+    {[
+      let imports = extract_imports ["import os\n"; "class Foo:\n"; "    pass\n"] in
+      (* ["import os\n"] *)
+    ]}
+*)
