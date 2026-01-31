@@ -1,5 +1,5 @@
 (library
  (name atomyst)
  (public_name atomyst)
- (libraries yojson)
+ (libraries yojson re)
  (preprocess (pps ppx_deriving.show ppx_deriving.eq)))

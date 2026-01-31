@@ -18,4 +18,6 @@
   dune
   cmdliner
   yojson
-  ppx_deriving))
+  ppx_deriving
+  re
+  (alcotest :with-test)))
