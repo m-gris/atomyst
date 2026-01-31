@@ -1,3 +1,9 @@
 (test
  (name test_snake_case)
  (libraries atomyst alcotest))
+
+(test
+ (name test_extract)
+ (libraries atomyst alcotest)
+ (deps (source_tree ../../test/fixtures))
+ (action (chdir %{project_root} (run %{test}))))
