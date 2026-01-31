@@ -42,3 +42,6 @@ AGENTS.md
 _build/
 *.install
 _opam/
+
+# Vendor
+vendor/
