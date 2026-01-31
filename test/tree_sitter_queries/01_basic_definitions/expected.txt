@@ -1,0 +1,7 @@
+test/tree_sitter_queries/01_basic_definitions/input.py
+  pattern: 0
+    capture: class.def, start: (0, 0), end: (1, 8)
+    capture: 0 - class.name, start: (0, 6), end: (0, 9), text: `Foo`
+  pattern: 1
+    capture: func.def, start: (4, 0), end: (5, 8)
+    capture: 2 - func.name, start: (4, 4), end: (4, 7), text: `bar`

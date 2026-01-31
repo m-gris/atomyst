@@ -1,0 +1,13 @@
+test/tree_sitter_queries/02_decorators/input.py
+  pattern: 0
+    capture: class.def, start: (0, 0), end: (2, 8)
+    capture: 0 - class.name, start: (1, 6), end: (1, 9), text: `Foo`
+  pattern: 2
+    capture: class.def, start: (1, 0), end: (2, 8)
+    capture: 0 - class.name, start: (1, 6), end: (1, 9), text: `Foo`
+  pattern: 1
+    capture: func.def, start: (5, 0), end: (8, 8)
+    capture: 2 - func.name, start: (7, 4), end: (7, 7), text: `bar`
+  pattern: 3
+    capture: func.def, start: (7, 0), end: (8, 8)
+    capture: 2 - func.name, start: (7, 4), end: (7, 7), text: `bar`
