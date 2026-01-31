@@ -1,0 +1,5 @@
+(library
+ (name atomyst)
+ (public_name atomyst)
+ (libraries yojson)
+ (preprocess (pps ppx_deriving.show ppx_deriving.eq)))

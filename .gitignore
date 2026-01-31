@@ -37,3 +37,8 @@ _build/
 AGENT.md
 AGENTS.md
 .venv/
+
+# OCaml
+_build/
+*.install
+_opam/
