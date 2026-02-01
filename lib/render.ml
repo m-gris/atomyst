@@ -115,3 +115,70 @@ let extraction_json result ~name =
 
 let error message =
   Printf.sprintf "Error: %s" message
+
+(** Format line range: "line N" for single line, "lines N-M" for multi-line *)
+let format_lines start_line end_line =
+  if start_line = end_line then
+    Printf.sprintf "line %d" start_line
+  else
+    Printf.sprintf "lines %d-%d" start_line end_line
+
+(** Render definition list in file order *)
+let list_text definitions ~source_name ~organized =
+  let buf = Buffer.create 256 in
+  Buffer.add_string buf (Printf.sprintf "Definitions in %s:\n\n" source_name);
+
+  if organized then begin
+    (* Group by kind *)
+    let by_kind kind = List.filter (fun d -> d.kind = kind) definitions in
+    let groups = [
+      ("Classes", by_kind Class);
+      ("Functions", by_kind Function);
+      ("Async Functions", by_kind AsyncFunction);
+      ("Type Aliases", by_kind TypeAlias);
+      ("Variables", by_kind Variable);
+    ] in
+    List.iter (fun (label, defs) ->
+      if defs <> [] then begin
+        Buffer.add_string buf (Printf.sprintf "%s:\n" label);
+        List.iter (fun d ->
+          Buffer.add_string buf
+            (Printf.sprintf "  %-20s %s\n" d.name (format_lines d.start_line d.end_line))
+        ) defs;
+        Buffer.add_string buf "\n"
+      end
+    ) groups
+  end else begin
+    (* File order *)
+    List.iter (fun d ->
+      Buffer.add_string buf
+        (Printf.sprintf "  %-20s %-15s %s\n"
+          d.name
+          (kind_to_string d.kind)
+          (format_lines d.start_line d.end_line))
+    ) definitions;
+    Buffer.add_string buf "\n"
+  end;
+
+  Buffer.add_string buf
+    (Printf.sprintf "%d definitions found" (List.length definitions));
+  Buffer.contents buf
+
+(** Render definition list as JSON *)
+let list_json definitions ~source_name =
+  let defs =
+    `List (List.map (fun d ->
+      `Assoc [
+        ("name", `String d.name);
+        ("kind", `String (kind_to_string d.kind));
+        ("start_line", `Int d.start_line);
+        ("end_line", `Int d.end_line);
+      ]
+    ) definitions)
+  in
+  let data = `Assoc [
+    ("source", `String source_name);
+    ("definitions", defs);
+    ("count", `Int (List.length definitions));
+  ] in
+  Yojson.Basic.pretty_to_string data

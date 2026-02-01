@@ -14,12 +14,13 @@ Following FP principles:
 ```
 test/
 ├── TESTING.md              # This file
+├── fixture_test.sh         # Fixture-based test runner
 ├── fixtures/
 │   ├── 01_simple_class/
 │   │   ├── input.py        # Source file to atomize
 │   │   └── expected/       # Expected output directory
 │   │       ├── __init__.py
-│   │       └── my_class.py
+│   │       └── person.py
 │   ├── 02_multiple_classes/
 │   │   ├── input.py
 │   │   └── expected/
@@ -27,7 +28,8 @@ test/
 │   │   ├── input.py
 │   │   └── expected/
 │   └── ...
-└── run_tests.py            # Test runner (or test_atomyst.py for pytest)
+├── ocaml/                  # OCaml unit tests (dune test)
+└── tree_sitter_queries/    # Tree-sitter query tests
 ```
 
 ## Test Categories
@@ -99,14 +101,17 @@ test/
 ## Running Tests
 
 ```bash
-# Python prototype
-python test/run_tests.py
+# All tests (OCaml unit tests + tree-sitter queries)
+just test
 
-# Or with pytest
-pytest test/
+# Fixture tests (compare output to expected/)
+just test-fixtures
 
-# Single fixture
-python test/run_tests.py test/fixtures/01_simple_class
+# Tree-sitter query tests only
+just test-queries
+
+# OCaml unit tests only
+just test-ocaml
 ```
 
 ## Adding a New Test
@@ -120,20 +125,13 @@ python test/run_tests.py test/fixtures/01_simple_class
 
 ## Golden Test Pattern
 
-```python
-def test_fixture(fixture_dir):
-    input_file = fixture_dir / "input.py"
-    expected_dir = fixture_dir / "expected"
+The fixture tests (`test/fixture_test.sh`) follow this pattern:
 
-    # Run atomization (pure computation)
-    source = input_file.read_text()
-    plan = plan_atomization(source, input_file.name)
-
-    # Compare each output file against expected
-    for output_file in plan.output_files:
-        expected_path = expected_dir / output_file.relative_path
-        assert expected_path.exists(), f"Missing expected file: {expected_path}"
-        assert output_file.content == expected_path.read_text()
+```bash
+# For each fixture with an expected/ directory:
+# 1. Run atomyst on input.py, output to temp dir
+# 2. Compare temp dir contents with expected/ using diff -r
+# 3. Pass if identical, fail with diff output otherwise
 ```
 
 ## Invariants to Assert

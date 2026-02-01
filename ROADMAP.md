@@ -89,16 +89,16 @@ Given a large source file, atomyst:
 
 ## Implementation Strategy
 
-### Phase 0: Prototype (Python)
-Quick validation of the approach using Python's stdlib `ast` + line slicing.
-Target: atomize a real 3000-line Python file successfully.
+### Phase 0: Prototype (Python) ✓ COMPLETE
+Quick validation using Python's stdlib `ast` + line slicing.
+*Completed: successfully atomized real 3000-line files.*
 
-### Phase 1: Production Tool
-Rewrite in a language suited for this domain (OCaml or Rust).
-Use tree-sitter for multi-language parsing.
-Proper CLI, error handling, tests.
+### Phase 1: Production Tool (OCaml) ✓ COMPLETE
+Rewritten in OCaml with tree-sitter for parsing.
+Proper CLI, error handling, fixture-based tests.
+*Completed: full feature parity, Python prototype retired.*
 
-### Phase 2: Extensibility
+### Phase 2: Extensibility (Future)
 Language configs as data (TOML/YAML).
 Community can add languages without touching core.
 

@@ -1,5 +1,4 @@
-"""Module with various module-level code that should NOT be extracted."""
-from typing import TypeVar, Generic
+from typing import Generic
 
 
 

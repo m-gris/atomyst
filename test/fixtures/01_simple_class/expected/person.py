@@ -1,6 +1,6 @@
-"""A simple module with one class."""
-
 from dataclasses import dataclass
+
+
 
 
 @dataclass

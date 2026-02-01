@@ -124,6 +124,13 @@ let extract_definitions source =
   |> dedupe_by_name
   |> to_definitions
 
+(** Result of import extraction with metadata *)
+type import_result = {
+  lines : string list;
+  skipped_docstring : bool;
+  skipped_pragmas : bool;
+}
+
 (** State for import extraction - immutable, threaded through fold *)
 type import_state = {
   result : string list;       (** Accumulated lines (reversed) *)
@@ -134,9 +141,12 @@ type import_state = {
   in_docstring : bool;        (** Inside multi-line docstring? *)
   docstring_delim : string option; (** Delimiter for current docstring *)
   done_extracting : bool;     (** Stop processing further lines *)
+  saw_docstring : bool;       (** Did we see a module-level docstring? *)
+  saw_pragmas : bool;         (** Did we see pragma comments? *)
+  keep_pragmas : bool;        (** Should we keep pragma comments? *)
 }
 
-let initial_state = {
+let make_initial_state ~keep_pragmas = {
   result = [];
   in_imports = false;
   paren_depth = 0;
@@ -145,6 +155,9 @@ let initial_state = {
   in_docstring = false;
   docstring_delim = None;
   done_extracting = false;
+  saw_docstring = false;
+  saw_pragmas = false;
+  keep_pragmas;
 }
 
 (** Helper: check if string starts with prefix *)
@@ -172,6 +185,19 @@ let get_indent line =
   in
   count 0
 
+(** Helper: check if a comment line is a pragma directive *)
+let is_pragma stripped =
+  starts_with stripped "# mypy:" ||
+  starts_with stripped "# type:" ||
+  starts_with stripped "# noqa" ||
+  starts_with stripped "# pylint:" ||
+  starts_with stripped "# ruff:" ||
+  starts_with stripped "#mypy:" ||
+  starts_with stripped "#type:" ||
+  starts_with stripped "#noqa" ||
+  starts_with stripped "#pylint:" ||
+  starts_with stripped "#ruff:"
+
 (** Process one line, returning new state *)
 let process_line state line =
   if state.done_extracting then state
@@ -185,7 +211,12 @@ let process_line state line =
         | Some delim -> ends_with stripped delim
         | None -> false
       in
-      if closes_docstring then
+      (* If we're before imports, skip docstring content (module-level docstring) *)
+      if not state.in_imports then
+        { state with
+          in_docstring = not closes_docstring;
+          docstring_delim = if closes_docstring then None else state.docstring_delim }
+      else if closes_docstring then
         add_line { state with in_docstring = false; docstring_delim = None }
       else
         add_line state
@@ -208,26 +239,40 @@ let process_line state line =
         type_checking_indent = get_indent line;
         in_imports = true }
 
-    (* Module docstring or shebang at start (before any imports) *)
+    (* Shebang, module docstring, or comment at start (before any imports) *)
     else if not state.in_imports && (
       starts_with stripped "#" ||
       starts_with stripped {|"""|} ||
       starts_with stripped "'''"
     ) then
-      (* Check if it's a multi-line docstring opening *)
-      let is_multiline_open delim =
-        starts_with stripped delim &&
-        count_char stripped delim.[0] = 3 &&
-        not (String.length stripped > 3 && ends_with stripped delim)
-      in
-      let docstring_delim =
-        if is_multiline_open {|"""|} then Some {|"""|}
-        else if is_multiline_open "'''" then Some "'''"
-        else None
-      in
-      add_line { state with
-        in_docstring = Option.is_some docstring_delim;
-        docstring_delim }
+      (* Shebang lines (#!/...) should be kept *)
+      if starts_with stripped "#!" then
+        add_line state
+      else if starts_with stripped {|"""|} || starts_with stripped "'''" then
+        (* Skip module docstrings - just track if multi-line *)
+        let is_multiline_open delim =
+          starts_with stripped delim &&
+          count_char stripped delim.[0] = 3 &&
+          not (String.length stripped > 3 && ends_with stripped delim)
+        in
+        let docstring_delim =
+          if is_multiline_open {|"""|} then Some {|"""|}
+          else if is_multiline_open "'''" then Some "'''"
+          else None
+        in
+        { state with
+          in_docstring = Option.is_some docstring_delim;
+          docstring_delim;
+          saw_docstring = true }
+      else if is_pragma stripped then
+        (* Pragma comment - keep or skip based on flag *)
+        if state.keep_pragmas then
+          add_line { state with saw_pragmas = true }
+        else
+          { state with saw_pragmas = true }
+      else
+        (* Skip other comments before imports *)
+        state
 
     (* Import statement *)
     else if starts_with stripped "import " || starts_with stripped "from " then
@@ -253,10 +298,18 @@ let process_line state line =
 
 (** Extract import block from beginning of file.
     Handles docstrings, shebangs, imports, multi-line imports, TYPE_CHECKING blocks.
-    Pure: string list -> string list *)
+    Returns lines and metadata about what was skipped.
+    Pure: string list -> keep_pragmas:bool -> import_result *)
+let extract_imports_full ?(keep_pragmas=false) (lines : string list) : import_result =
+  let initial = make_initial_state ~keep_pragmas in
+  let final_state = List.fold_left process_line initial lines in
+  { lines = List.rev final_state.result;
+    skipped_docstring = final_state.saw_docstring;
+    skipped_pragmas = final_state.saw_pragmas && not keep_pragmas }
+
+(** Simple version for backwards compatibility - just returns lines *)
 let extract_imports (lines : string list) : string list =
-  let final_state = List.fold_left process_line initial_state lines in
-  List.rev final_state.result
+  (extract_imports_full lines).lines
 
 (** Find where comments immediately preceding a definition begin.
     Looks backwards from start_line to find contiguous comment lines.

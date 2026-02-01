@@ -45,21 +45,9 @@ ts-expected test_dir:
 run *args:
     eval $(opam env) && dune exec atomyst -- {{args}}
 
-# Run Python atomyst CLI with arguments
-run-py *args:
-    python atomyst.py {{args}}
-
-# Compare Python and OCaml output for a single file
-parity file *args:
-    @echo "=== Python ==="
-    python atomyst.py "{{file}}" {{args}} 2>&1 || true
-    @echo ""
-    @echo "=== OCaml ==="
-    eval $(opam env) && dune exec atomyst -- "{{file}}" {{args}} 2>&1 || true
-
-# Run full parity test suite
-parity-all:
-    ./test/parity_test.sh
+# Run fixture tests (compare output to expected/)
+test-fixtures:
+    ./test/fixture_test.sh
 
 # Clean build artifacts
 clean:

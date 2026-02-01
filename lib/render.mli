@@ -22,3 +22,10 @@ val extraction_json : extraction_result -> name:string -> string
 
 val error : string -> string
 (** [error message] formats an error message. *)
+
+val list_text : Types.definition list -> source_name:string -> organized:bool -> string
+(** [list_text definitions ~source_name ~organized] renders a definition list
+    as human-readable text. If [organized] is true, groups by kind. *)
+
+val list_json : Types.definition list -> source_name:string -> string
+(** [list_json definitions ~source_name] renders a definition list as JSON. *)

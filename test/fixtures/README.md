@@ -15,9 +15,9 @@ NN_descriptive_name/
 
 1. Create directory: `mkdir test/fixtures/NN_name`
 2. Write `input.py` with the scenario to test
-3. Generate expected: `python atomyst.py test/fixtures/NN_name/input.py -o test/fixtures/NN_name/expected`
+3. Generate expected: `just run test/fixtures/NN_name/input.py -o test/fixtures/NN_name/expected`
 4. Review the output manually
-5. Run tests: `pytest test/test_atomyst.py -k "NN_name"`
+5. Run tests: `just test-fixtures`
 6. Commit both `input.py` and `expected/`
 
 ## Current Fixtures
@@ -33,6 +33,9 @@ NN_descriptive_name/
 | 07 | type_checking | TYPE_CHECKING imports |
 | 08 | module_level_code | TypeVar, constants, __all__ (NOT extracted) |
 | 09 | forward_references | Self-referential and circular types |
+| 10 | incremental | --extract mode (single definition extraction) |
+| 11 | docstring_pragmas | Module docstrings and pragmas skipped |
+| 12 | shebang | Shebang lines preserved |
 
 ## Naming Convention
 

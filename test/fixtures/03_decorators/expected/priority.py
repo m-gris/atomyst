@@ -1,10 +1,6 @@
-"""Module demonstrating decorator handling."""
-
 import functools
-from dataclasses import dataclass, field
-from typing import Callable, TypeVar
+from dataclasses import dataclass
 
-T = TypeVar("T")
 
 
 @dataclass

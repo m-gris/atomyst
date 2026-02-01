@@ -1,10 +1,5 @@
-"""Module demonstrating decorator handling."""
-
 import functools
-from dataclasses import dataclass, field
-from typing import Callable, TypeVar
 
-T = TypeVar("T")
 
 
 @log_calls

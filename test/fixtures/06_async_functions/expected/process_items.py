@@ -1,6 +1,3 @@
-"""Module with async functions."""
-import asyncio
-from typing import Any
 
 
 

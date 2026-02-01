@@ -1,4 +1,3 @@
-"""Module with multiple classes for incremental extraction."""
 from dataclasses import dataclass
 
 

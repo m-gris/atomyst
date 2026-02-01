@@ -1,7 +1,7 @@
-"""Module with multiple classes demonstrating extraction."""
-
 from dataclasses import dataclass
 from typing import Optional
+
+
 
 
 @dataclass

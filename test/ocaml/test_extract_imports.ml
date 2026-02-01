@@ -34,7 +34,7 @@ let test_multiline_import () =
   Alcotest.(check int) "5 import lines (4 import + blank)"
     5 (List.length imports)
 
-(** Test module docstring is preserved *)
+(** Test module docstring is skipped (not copied to extracted files) *)
 let test_module_docstring () =
   let lines = [
     {|"""Module docstring."""|} ^ "\n";
@@ -44,10 +44,12 @@ let test_module_docstring () =
     "class Foo:\n";
   ] in
   let imports = Extract.extract_imports lines in
-  Alcotest.(check bool) "docstring in imports"
-    true (List.mem ({|"""Module docstring."""|} ^ "\n") imports)
+  Alcotest.(check bool) "docstring NOT in imports"
+    false (List.mem ({|"""Module docstring."""|} ^ "\n") imports);
+  Alcotest.(check bool) "import os in imports"
+    true (List.mem "import os\n" imports)
 
-(** Test shebang and docstring *)
+(** Test shebang is preserved but docstring is skipped *)
 let test_shebang () =
   let lines = [
     "#!/usr/bin/env python3\n";
@@ -57,7 +59,11 @@ let test_shebang () =
   ] in
   let imports = Extract.extract_imports lines in
   Alcotest.(check bool) "shebang in imports"
-    true (List.mem "#!/usr/bin/env python3\n" imports)
+    true (List.mem "#!/usr/bin/env python3\n" imports);
+  Alcotest.(check bool) "docstring NOT in imports"
+    false (List.mem ({|"""Docstring."""|} ^ "\n") imports);
+  Alcotest.(check bool) "import os in imports"
+    true (List.mem "import os\n" imports)
 
 (** Test TYPE_CHECKING block *)
 let test_type_checking () =
@@ -78,7 +84,7 @@ let test_type_checking () =
   Alcotest.(check bool) "AnotherType import in imports"
     true (List.mem "    from another import AnotherType\n" imports)
 
-(** Test multi-line docstring *)
+(** Test multi-line docstring and pragmas are skipped *)
 let test_multiline_docstring () =
   let lines = [
     {|# mypy: disable-error-code="explicit-any"|} ^ "\n";
@@ -93,10 +99,14 @@ let test_multiline_docstring () =
     "class Foo:\n";
   ] in
   let imports = Extract.extract_imports lines in
-  Alcotest.(check bool) "opening docstring in imports"
-    true (List.mem ({|"""|} ^ "\n") imports);
-  Alcotest.(check bool) "docstring middle in imports"
-    true (List.mem "Multi-line docstring\n" imports);
+  (* Pragmas and docstrings are skipped *)
+  Alcotest.(check bool) "pragma NOT in imports"
+    false (List.mem ({|# mypy: disable-error-code="explicit-any"|} ^ "\n") imports);
+  Alcotest.(check bool) "docstring opening NOT in imports"
+    false (List.mem ({|"""|} ^ "\n") imports);
+  Alcotest.(check bool) "docstring middle NOT in imports"
+    false (List.mem "Multi-line docstring\n" imports);
+  (* Actual imports are preserved *)
   Alcotest.(check bool) "import hashlib in imports"
     true (List.mem "import hashlib\n" imports);
   Alcotest.(check bool) "from typing in imports"

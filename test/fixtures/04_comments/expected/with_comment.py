@@ -1,6 +1,5 @@
-"""Module demonstrating comment handling."""
 
-from dataclasses import dataclass
+
 
 
 # This comment is directly above the class

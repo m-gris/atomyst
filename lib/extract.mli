@@ -23,22 +23,33 @@ val extract_definitions : string -> definition list
 
     @raise Failure if tree-sitter parsing fails *)
 
-val extract_imports : string list -> string list
-(** [extract_imports lines] extracts the import block from the beginning
-    of a Python source file.
+(** Result of import extraction with metadata about skipped content *)
+type import_result = {
+  lines : string list;
+  skipped_docstring : bool;
+  skipped_pragmas : bool;
+}
+
+val extract_imports_full : ?keep_pragmas:bool -> string list -> import_result
+(** [extract_imports_full ?keep_pragmas lines] extracts the import block
+    from the beginning of a Python source file, with metadata.
 
     Includes:
-    - Module docstrings and shebangs (including multi-line)
+    - Shebangs (#!/...)
     - import and from statements
     - Multi-line imports (parenthesized)
     - TYPE_CHECKING blocks
 
-    Example:
-    {[
-      let imports = extract_imports ["import os\n"; "class Foo:\n"; "    pass\n"] in
-      (* ["import os\n"] *)
-    ]}
+    Skips by default:
+    - Module docstrings (tracked in [skipped_docstring])
+    - Pragma comments like [# mypy:], [# type:] (tracked in [skipped_pragmas])
+
+    @param keep_pragmas If true, pragma comments are included (default: false)
 *)
+
+val extract_imports : string list -> string list
+(** Simple version of [extract_imports_full] for backwards compatibility.
+    Returns just the lines, skipping docstrings and pragmas. *)
 
 val extract_one : string -> string -> extraction_result option
 (** [extract_one source name] extracts a single definition by name from source.
