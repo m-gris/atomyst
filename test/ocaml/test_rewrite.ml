@@ -195,6 +195,32 @@ def process(q: Query) -> Response:
     Alcotest.(check string) "found import module"
       "..pkg.models" imp.target_module
 
+(** Test that find_imports_from_module finds ABSOLUTE imports via suffix matching.
+    GitHub #18: absolute imports like 'from pkg.sub.models import X' weren't detected. *)
+let test_find_consumer_imports_absolute () =
+  let consumer_source = {|"""Consumer with absolute import."""
+
+from dodogpt_backend.app.agentic_chatbot.domain_models import StrictBaseModel, Query
+
+
+class Config(StrictBaseModel):
+    pass
+|} in
+  (* Target module path *)
+  let target_module = "agentic_chatbot.domain_models" in
+  let imports = Rewrite.find_imports_from_module ~consumer_source ~target_module in
+
+  if List.length imports = 0 then
+    Alcotest.fail (Printf.sprintf
+      "No imports found for absolute import with target_module='%s'\n\
+       Should match 'from dodogpt_backend.app.agentic_chatbot.domain_models'"
+      target_module)
+  else
+    let imp = List.hd imports in
+    Alcotest.(check bool) "is NOT relative" false imp.is_relative;
+    Alcotest.(check string) "found absolute import module"
+      "dodogpt_backend.app.agentic_chatbot.domain_models" imp.target_module
+
 (** Test that find_imports_from_module works with multi-line imports (GitHub #13) *)
 let test_find_consumer_imports_multiline () =
   let consumer_source = {|"""Consumer with multi-line import."""
@@ -338,6 +364,7 @@ let () =
         [ Alcotest.test_case "module_path_matching" `Quick test_module_path_matching;
           Alcotest.test_case "find_imports_exact" `Quick test_find_consumer_imports_exact;
           Alcotest.test_case "find_imports_suffix" `Quick test_find_consumer_imports_suffix;
+          Alcotest.test_case "find_imports_absolute" `Quick test_find_consumer_imports_absolute;
           Alcotest.test_case "find_imports_multiline" `Quick test_find_consumer_imports_multiline;
         ] )
     ]

@@ -205,13 +205,12 @@ let consumer_import_of_pyre (stmt : Python_parser.import_stmt) : consumer_import
 let find_imports_from_module ~consumer_source ~target_module =
   let parsed = Python_parser.extract_imports consumer_source in
   let imports = List.filter_map consumer_import_of_pyre parsed in
+  let module_name = module_basename target_module in
   (* Filter to imports from target module *)
   List.filter (fun imp ->
     imp.target_module = target_module ||
-    (* Handle relative imports ending with the module name *)
-    (imp.is_relative &&
-     let module_name = module_basename target_module in
-     ends_with imp.target_module ("." ^ module_name))
+    (* Handle imports ending with the module name (both relative and absolute) *)
+    ends_with imp.target_module ("." ^ module_name)
   ) imports
 
 (** Get directory parts for a file (excludes the filename itself) *)
