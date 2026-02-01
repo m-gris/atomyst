@@ -123,6 +123,76 @@ let test_generate_with_alias () =
   Alcotest.(check bool) "preserves alias"
     true (string_contains ~sub:"Field as F" result)
 
+(** Test module path matching for consumer detection.
+    This tests the critical path: does the consumer's import match the atomized module? *)
+let test_module_path_matching () =
+  (* Simulate: atomizing test/fixtures/13_consumer_rewrite/pkg/models.py *)
+  let root = "/Users/marc/DATA_PROG/OCAML/atomyst" in
+  let atomized_file = "/Users/marc/DATA_PROG/OCAML/atomyst/test/fixtures/13_consumer_rewrite/pkg/models.py" in
+  let atomized_module = Rewrite.module_path_of_file ~root atomized_file in
+
+  (* Consumer is at test/fixtures/13_consumer_rewrite/consumer/use_models.py *)
+  (* It imports: from ..pkg.models import ... *)
+  let consumer_file = "test/fixtures/13_consumer_rewrite/consumer/use_models.py" in
+  let consumer_import_ref = "..pkg.models" in
+  let resolved = Rewrite.resolve_relative_import ~from_file:consumer_file ~module_ref:consumer_import_ref in
+
+  (* Use Alcotest.fail to show debug info if they don't match *)
+  if atomized_module <> resolved then
+    Alcotest.fail (Printf.sprintf
+      "Module paths don't match!\n  Atomized: '%s'\n  Resolved: '%s'"
+      atomized_module resolved)
+
+(** Test that find_imports_from_module finds imports with exact match *)
+let test_find_consumer_imports_exact () =
+  let consumer_source = {|"""Consumer module."""
+
+from ..pkg.models import Optional, dataclass, Query, Response
+
+
+def process(q: Query) -> Response:
+    return Response(data=q.text)
+|} in
+  (* Exact match - same as what's in the source *)
+  let target_module = "..pkg.models" in
+  let imports = Rewrite.find_imports_from_module ~consumer_source ~target_module in
+
+  if List.length imports = 0 then
+    Alcotest.fail (Printf.sprintf
+      "No imports found for exact target_module='%s'" target_module)
+  else
+    let imp = List.hd imports in
+    let names = List.map (fun n -> n.Rewrite.name) imp.names in
+    Alcotest.(check (list string)) "imported names"
+      ["Optional"; "dataclass"; "Query"; "Response"]
+      names
+
+(** Test that find_imports_from_module finds imports via suffix matching.
+    This is what actually happens in fix_consumer_imports - it passes the
+    absolute module path, not the relative import reference. *)
+let test_find_consumer_imports_suffix () =
+  let consumer_source = {|"""Consumer module."""
+
+from ..pkg.models import Optional, dataclass, Query, Response
+
+
+def process(q: Query) -> Response:
+    return Response(data=q.text)
+|} in
+  (* Absolute module path - what fix_consumer_imports actually passes *)
+  let target_module = "test.fixtures.13_consumer_rewrite.pkg.models" in
+  let imports = Rewrite.find_imports_from_module ~consumer_source ~target_module in
+
+  if List.length imports = 0 then
+    Alcotest.fail (Printf.sprintf
+      "No imports found for absolute target_module='%s'\n\
+       The suffix matching should find ..pkg.models ending with .models"
+      target_module)
+  else
+    let imp = List.hd imports in
+    Alcotest.(check string) "found import module"
+      "..pkg.models" imp.target_module
+
 (** Test suite *)
 let () =
   Alcotest.run "rewrite"
@@ -144,5 +214,10 @@ let () =
       ( "generate_replacement_imports",
         [ Alcotest.test_case "simple" `Quick test_generate_simple_rewrite;
           Alcotest.test_case "with_alias" `Quick test_generate_with_alias;
+        ] );
+      ( "integration",
+        [ Alcotest.test_case "module_path_matching" `Quick test_module_path_matching;
+          Alcotest.test_case "find_imports_exact" `Quick test_find_consumer_imports_exact;
+          Alcotest.test_case "find_imports_suffix" `Quick test_find_consumer_imports_suffix;
         ] )
     ]

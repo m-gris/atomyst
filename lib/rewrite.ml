@@ -318,6 +318,19 @@ let build_consumer_import captures =
       has_star;
     }
 
+(** Get the last component of a dotted module path *)
+let module_basename module_path =
+  match List.rev (String.split_on_char '.' module_path) with
+  | last :: _ -> last
+  | [] -> module_path
+
+(** Check if a string ends with a suffix *)
+let ends_with s suffix =
+  let s_len = String.length s in
+  let suffix_len = String.length suffix in
+  s_len >= suffix_len &&
+  String.sub s (s_len - suffix_len) suffix_len = suffix
+
 (** Find all imports in consumer source that reference the target module *)
 let find_imports_from_module ~consumer_source ~target_module =
   let output = run_import_query consumer_source in
@@ -327,13 +340,10 @@ let find_imports_from_module ~consumer_source ~target_module =
   (* Filter to imports from target module *)
   List.filter (fun imp ->
     imp.target_module = target_module ||
-    (* Handle relative imports ending with target *)
+    (* Handle relative imports ending with the module name *)
     (imp.is_relative &&
-     let suffix = "." ^ (Filename.basename target_module) in
-     String.length imp.target_module >= String.length suffix &&
-     String.sub imp.target_module
-       (String.length imp.target_module - String.length suffix)
-       (String.length suffix) = suffix)
+     let module_name = module_basename target_module in
+     ends_with imp.target_module ("." ^ module_name))
   ) imports
 
 (** Classify an import name *)
