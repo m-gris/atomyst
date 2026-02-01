@@ -6,7 +6,7 @@
 open Cmdliner
 open Atomyst
 
-let version = "0.1.0"
+let version = "%%VERSION_NUM%%"
 
 (** Read file contents *)
 let read_file path =

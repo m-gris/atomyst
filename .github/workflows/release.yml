@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin-arm64
+          - os: macos-13
+            platform: darwin-x86_64
+          - os: ubuntu-latest
+            platform: linux-x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Get version from tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Substitute version in source
+        run: |
+          sed -i.bak "s/%%VERSION_NUM%%/$VERSION/g" bin/main.ml
+          rm -f bin/main.ml.bak
+          grep "let version" bin/main.ml
+
+      - name: Install OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.x
+
+      - name: Install dependencies
+        run: opam install . --deps-only --yes
+
+      - name: Build tree-sitter Python grammar
+        run: |
+          cd vendor/tree-sitter-python/src
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cc -shared -fPIC -o ../../../python.dylib parser.c scanner.c -I .
+          else
+            cc -shared -fPIC -o ../../../python.so parser.c scanner.c -I .
+          fi
+
+      - name: Build atomyst
+        run: opam exec -- dune build --release
+
+      - name: Package binary
+        run: |
+          mkdir -p dist
+          cp _build/default/bin/main.exe dist/atomyst-${{ matrix.platform }}
+          chmod +x dist/atomyst-${{ matrix.platform }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atomyst-${{ matrix.platform }}
+          path: dist/atomyst-${{ matrix.platform }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for dir in artifacts/atomyst-*; do
+            binary=$(basename "$dir")
+            cp "$dir/$binary" release/
+            chmod +x "release/$binary"
+          done
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
