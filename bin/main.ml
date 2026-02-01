@@ -31,6 +31,18 @@ let cleanup_unused_imports dir =
     (Filename.quote dir) in
   ignore (Sys.command cmd)
 
+(** Attempt to remove original file if --remove-original is set and safe to do so *)
+let maybe_remove_original ~remove_original source_path =
+  if not remove_original then ()
+  else
+    match Git_utils.check_safe_to_remove source_path with
+    | Git_utils.Safe ->
+      Sys.remove source_path;
+      print_endline (Printf.sprintf "\n✓ Removed original file: %s" source_path)
+    | result ->
+      print_endline (Printf.sprintf "\n⚠ Cannot remove original: %s"
+        (Git_utils.safe_remove_result_to_string result))
+
 (** Build __init__.py content for a single definition by name *)
 let build_single_init name =
   let buf = Buffer.create 256 in
@@ -255,7 +267,7 @@ let build_warnings skipped_docstring skipped_pragmas potential_reexports constan
   List.rev warnings
 
 (** Run atomization *)
-let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt preserve_reexports =
+let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt preserve_reexports remove_original =
   if not (Sys.file_exists source_path) then begin
     print_endline (Render.error (Printf.sprintf "%s does not exist" source_path));
     1
@@ -345,6 +357,10 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
          print_endline (Printf.sprintf "\n⚠ Cannot fix imports: star import at %s:%d\n  Manual update required." file line)
        | Some (Rewrite.Error msg) ->
          print_endline (Printf.sprintf "\n⚠ Import fix error: %s" msg));
+
+      (* Remove original file if requested and safe *)
+      if not dry_run then
+        maybe_remove_original ~remove_original source_path;
       0
     end
   end
@@ -428,11 +444,11 @@ let run_list source_path format_opt organized =
   end
 
 (** Main entry point *)
-let main source_path output_dir dry_run format_opt extract_name keep_pragmas list_mode organized manifest_opt preserve_reexports =
+let main source_path output_dir dry_run format_opt extract_name keep_pragmas list_mode organized manifest_opt preserve_reexports remove_original =
   match list_mode, extract_name with
   | true, _ -> run_list source_path format_opt organized
   | false, Some name -> run_extract source_path name output_dir dry_run format_opt keep_pragmas
-  | false, None -> run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt preserve_reexports
+  | false, None -> run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt preserve_reexports remove_original
 
 (* Cmdliner terms *)
 
@@ -476,10 +492,14 @@ let preserve_reexports_arg =
   let doc = "Skip fixing consumer imports. Use when re-exports are intentional (library code with external consumers)." in
   Arg.(value & flag & info ["preserve-reexports"] ~doc)
 
+let remove_original_arg =
+  let doc = "Remove original file after successful atomization. Only works if file is git-tracked with no uncommitted changes." in
+  Arg.(value & flag & info ["remove-original"] ~doc)
+
 let cmd =
   let doc = "Atomize Python source files into one-definition-per-file structure" in
   let info = Cmd.info "atomyst" ~version ~doc in
-  let term = Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg $ preserve_reexports_arg) in
+  let term = Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg $ preserve_reexports_arg $ remove_original_arg) in
   Cmd.v info term
 
 let () =

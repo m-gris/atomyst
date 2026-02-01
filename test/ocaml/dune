@@ -29,3 +29,7 @@
 (test
  (name test_python_parser)
  (libraries atomyst alcotest))
+
+(test
+ (name test_git_utils)
+ (libraries atomyst alcotest unix))
