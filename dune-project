@@ -20,4 +20,5 @@
   yojson
   ppx_deriving
   re
+  pyre-ast
   (alcotest :with-test)))
