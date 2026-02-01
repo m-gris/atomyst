@@ -214,6 +214,36 @@ let find_imports_from_module ~consumer_source ~target_module =
      ends_with imp.target_module ("." ^ module_name))
   ) imports
 
+(** Get directory depth (number of path components) for a file *)
+let file_depth file =
+  let dir = Filename.dirname file in
+  if dir = "." then 0
+  else
+    let parts = String.split_on_char '/' dir in
+    List.length (List.filter (fun s -> s <> "" && s <> ".") parts)
+
+(** Adjust a relative import for a different consumer file location.
+    If original_import is ".common" relative to source_file,
+    returns the correct relative import for consumer_file. *)
+let adjust_import_for_consumer ~source_file ~consumer_file ~original_import =
+  let dots = count_leading_dots original_import in
+  if dots = 0 then
+    (* Absolute import - no adjustment needed *)
+    original_import
+  else
+    (* Get depth difference between source and consumer *)
+    let source_depth = file_depth source_file in
+    let consumer_depth = file_depth consumer_file in
+    let depth_diff = consumer_depth - source_depth in
+    (* Adjust number of dots *)
+    let new_dots = dots + depth_diff in
+    if new_dots <= 0 then
+      (* This shouldn't happen in practice - would mean invalid import *)
+      original_import
+    else
+      let after_dots = String.sub original_import dots (String.length original_import - dots) in
+      (String.make new_dots '.') ^ after_dots
+
 (** Classify an import name *)
 let classify_import_name ~name ~defined_names ~reexports =
   if List.mem name defined_names then
@@ -223,8 +253,9 @@ let classify_import_name ~name ~defined_names ~reexports =
     | Some original_module -> Reexport { original_module }
     | None -> Unknown
 
-(** Generate replacement import text *)
-let generate_replacement_imports ~import ~classifications =
+(** Generate replacement import text.
+    source_file and consumer_file are used to adjust relative import depths. *)
+let generate_replacement_imports ~import ~classifications ~source_file ~consumer_file =
   (* Group names by their classification *)
   let definitions = ref [] in
   let by_module = Hashtbl.create 8 in
@@ -237,8 +268,11 @@ let generate_replacement_imports ~import ~classifications =
     | Definition ->
       definitions := import_name :: !definitions
     | Reexport { original_module } ->
-      let existing = try Hashtbl.find by_module original_module with Not_found -> [] in
-      Hashtbl.replace by_module original_module (import_name :: existing)
+      (* Adjust the import path for the consumer's location *)
+      let adjusted_module = adjust_import_for_consumer
+        ~source_file ~consumer_file ~original_import:original_module in
+      let existing = try Hashtbl.find by_module adjusted_module with Not_found -> [] in
+      Hashtbl.replace by_module adjusted_module (import_name :: existing)
     | Unknown ->
       unknowns := import_name :: !unknowns
   ) classifications;
@@ -259,8 +293,8 @@ let generate_replacement_imports ~import ~classifications =
       (String.concat ", " name_strs))
   end;
 
-  (* Generate imports for re-exports grouped by original module *)
-  Hashtbl.iter (fun original_module names ->
+  (* Generate imports for re-exports grouped by adjusted module *)
+  Hashtbl.iter (fun adjusted_module names ->
     let names = List.rev names in
     let name_strs = List.map (fun n ->
       if n.has_alias then
@@ -269,7 +303,7 @@ let generate_replacement_imports ~import ~classifications =
         n.name
     ) names in
     Buffer.add_string buf (Printf.sprintf "from %s import %s\n"
-      original_module
+      adjusted_module
       (String.concat ", " name_strs))
   ) by_module;
 
@@ -366,6 +400,12 @@ let fix_consumer_imports ~atomized_file ~defined_names ~reexports =
   | Some root ->
     let python_files = find_python_files root in
     let atomized_module = module_path_of_file ~root atomized_file in
+    (* Get relative path for the source file *)
+    let source_file_relative =
+      if starts_with atomized_file (root ^ "/") then
+        String.sub atomized_file (String.length root + 1) (String.length atomized_file - String.length root - 1)
+      else atomized_file
+    in
 
     let all_rewrites = ref [] in
     let all_details = ref [] in
@@ -374,7 +414,7 @@ let fix_consumer_imports ~atomized_file ~defined_names ~reexports =
     (* Process each Python file *)
     let rec process_files = function
       | [] -> Fixed { rewrites = !all_rewrites; files_changed = !files_changed; details = !all_details }
-      | file :: rest ->
+      | file :: rest ->  (* file is already relative to root *)
         let file_path = Filename.concat root file in
         (* Skip the atomized file itself *)
         if file_path = atomized_file then
@@ -407,15 +447,18 @@ let fix_consumer_imports ~atomized_file ~defined_names ~reexports =
 
               if not needs_rewrite then None
               else begin
-                (* Track which names moved where *)
+                (* Track which names moved where - use adjusted import for reporting *)
                 List.iter (fun (name, classification) ->
                   match classification with
                   | Reexport { original_module } ->
-                    file_names_moved := (name, import.target_module, original_module) :: !file_names_moved
+                    let adjusted = adjust_import_for_consumer
+                      ~source_file:source_file_relative ~consumer_file:file ~original_import:original_module in
+                    file_names_moved := (name, import.target_module, adjusted) :: !file_names_moved
                   | _ -> ()
                 ) classifications;
 
-                let new_text = generate_replacement_imports ~import ~classifications in
+                let new_text = generate_replacement_imports ~import ~classifications
+                  ~source_file:source_file_relative ~consumer_file:file in
                 (* Get old text from source *)
                 let lines = Array.of_list (String.split_on_char '\n' source) in
                 let old_text =

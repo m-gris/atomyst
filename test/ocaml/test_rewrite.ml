@@ -94,7 +94,8 @@ let test_generate_simple_rewrite () =
     ("Field", Rewrite.Reexport { original_module = "pydantic" });
     ("Query", Rewrite.Definition);
   ] in
-  let result = Rewrite.generate_replacement_imports ~import ~classifications in
+  let result = Rewrite.generate_replacement_imports ~import ~classifications
+    ~source_file:"pkg/models.py" ~consumer_file:"pkg/consumer.py" in
   (* Should have both a definition import and a reexport import *)
   Alcotest.(check bool) "has content"
     true (String.length result > 0);
@@ -119,7 +120,8 @@ let test_generate_with_alias () =
   let classifications = [
     ("F", Rewrite.Reexport { original_module = "pydantic" });
   ] in
-  let result = Rewrite.generate_replacement_imports ~import ~classifications in
+  let result = Rewrite.generate_replacement_imports ~import ~classifications
+    ~source_file:"pkg/models.py" ~consumer_file:"pkg/consumer.py" in
   Alcotest.(check bool) "preserves alias"
     true (string_contains ~sub:"Field as F" result)
 
@@ -221,6 +223,60 @@ def process(q: Query) -> Response:
     Alcotest.(check bool) "Query found" true (List.mem "Query" names)
   end
 
+(** Test adjust_import_for_consumer - GitHub #14 bug fix *)
+let test_adjust_import_same_level () =
+  (* Source: pkg/models.py has "from .common import X"
+     Consumer: pkg/consumer.py (same level)
+     Expected: .common (no change needed) *)
+  let result = Rewrite.adjust_import_for_consumer
+    ~source_file:"pkg/models.py"
+    ~consumer_file:"pkg/consumer.py"
+    ~original_import:".common"
+  in
+  Alcotest.(check string) "same level" ".common" result
+
+let test_adjust_import_deeper_consumer () =
+  (* Source: pkg/models.py has "from .common import X"
+     Consumer: pkg/sub/consumer.py (one level deeper)
+     Expected: ..common (need extra dot) *)
+  let result = Rewrite.adjust_import_for_consumer
+    ~source_file:"pkg/models.py"
+    ~consumer_file:"pkg/sub/consumer.py"
+    ~original_import:".common"
+  in
+  Alcotest.(check string) "deeper consumer" "..common" result
+
+let test_adjust_import_deeper_init () =
+  (* Source: agentic_chatbot/domain_models.py has "from .common import X"
+     Consumer: agentic_chatbot/llm_services/__init__.py
+     Expected: ..common *)
+  let result = Rewrite.adjust_import_for_consumer
+    ~source_file:"agentic_chatbot/domain_models.py"
+    ~consumer_file:"agentic_chatbot/llm_services/__init__.py"
+    ~original_import:".common"
+  in
+  Alcotest.(check string) "deeper init" "..common" result
+
+let test_adjust_import_shallower_consumer () =
+  (* Source: pkg/sub/models.py has "from ..common import X"
+     Consumer: pkg/consumer.py (one level shallower)
+     Expected: .common (one less dot) *)
+  let result = Rewrite.adjust_import_for_consumer
+    ~source_file:"pkg/sub/models.py"
+    ~consumer_file:"pkg/consumer.py"
+    ~original_import:"..common"
+  in
+  Alcotest.(check string) "shallower consumer" ".common" result
+
+let test_adjust_import_absolute () =
+  (* Absolute imports should remain unchanged *)
+  let result = Rewrite.adjust_import_for_consumer
+    ~source_file:"pkg/models.py"
+    ~consumer_file:"other/consumer.py"
+    ~original_import:"pydantic"
+  in
+  Alcotest.(check string) "absolute unchanged" "pydantic" result
+
 (** Test suite *)
 let () =
   Alcotest.run "rewrite"
@@ -242,6 +298,13 @@ let () =
       ( "generate_replacement_imports",
         [ Alcotest.test_case "simple" `Quick test_generate_simple_rewrite;
           Alcotest.test_case "with_alias" `Quick test_generate_with_alias;
+        ] );
+      ( "adjust_import_for_consumer",
+        [ Alcotest.test_case "same_level" `Quick test_adjust_import_same_level;
+          Alcotest.test_case "deeper_consumer" `Quick test_adjust_import_deeper_consumer;
+          Alcotest.test_case "deeper_init" `Quick test_adjust_import_deeper_init;
+          Alcotest.test_case "shallower_consumer" `Quick test_adjust_import_shallower_consumer;
+          Alcotest.test_case "absolute" `Quick test_adjust_import_absolute;
         ] );
       ( "integration",
         [ Alcotest.test_case "module_path_matching" `Quick test_module_path_matching;

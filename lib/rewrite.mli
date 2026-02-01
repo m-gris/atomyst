@@ -94,13 +94,26 @@ val classify_import_name :
 val generate_replacement_imports :
   import:consumer_import ->
   classifications:(string * import_classification) list ->
+  source_file:string ->
+  consumer_file:string ->
   string
-(** [generate_replacement_imports ~import ~classifications] generates
-    the replacement import text for a consumer import. *)
+(** [generate_replacement_imports ~import ~classifications ~source_file ~consumer_file]
+    generates the replacement import text for a consumer import.
+    Adjusts relative imports based on consumer file location. *)
 
 val apply_rewrites : file_path:string -> rewrites:rewrite list -> unit
 (** [apply_rewrites ~file_path ~rewrites] applies rewrites to a file atomically.
     Processes in reverse position order to preserve offsets. *)
+
+val adjust_import_for_consumer :
+  source_file:string ->
+  consumer_file:string ->
+  original_import:string ->
+  string
+(** [adjust_import_for_consumer ~source_file ~consumer_file ~original_import]
+    adjusts a relative import path for a different file location.
+    If [original_import] is ".common" relative to source_file,
+    returns the correct relative import for consumer_file. *)
 
 val fix_consumer_imports :
   atomized_file:string ->
