@@ -18,7 +18,7 @@ jobs:
         include:
           - os: macos-14
             platform: darwin-arm64
-          - os: macos-13
+          - os: macos-13-large
             platform: darwin-x86_64
           - os: ubuntu-latest
             platform: linux-x86_64
@@ -44,6 +44,10 @@ jobs:
 
       - name: Install dependencies
         run: opam install . --deps-only --yes
+
+      - name: Clone tree-sitter-python
+        run: |
+          git clone --depth 1 https://github.com/tree-sitter/tree-sitter-python.git vendor/tree-sitter-python
 
       - name: Build tree-sitter Python grammar
         run: |
