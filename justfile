@@ -40,13 +40,22 @@ ts-expected test_dir:
     tree-sitter query --lib-path python.dylib --lang-name python \
         "{{test_dir}}/query.scm" "{{test_dir}}/input.py" > "{{test_dir}}/expected.txt"
 
+# Run OCaml atomyst CLI with arguments
+# Usage: just run test/fixtures/01_simple_class/input.py --dry-run
+run *args:
+    eval $(opam env) && dune exec atomyst -- {{args}}
+
+# Run Python atomyst CLI with arguments
+run-py *args:
+    python atomyst.py {{args}}
+
 # Compare Python and OCaml output (parity testing)
-parity file:
+parity file *args:
     @echo "=== Python ==="
-    python atomyst.py "{{file}}" --dry-run 2>&1 || true
+    python atomyst.py "{{file}}" {{args}} 2>&1 || true
     @echo ""
     @echo "=== OCaml ==="
-    eval $(opam env) && dune exec atomyst -- "{{file}}" --dry-run 2>&1 || true
+    eval $(opam env) && dune exec atomyst -- "{{file}}" {{args}} 2>&1 || true
 
 # Clean build artifacts
 clean:
