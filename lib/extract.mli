@@ -26,7 +26,8 @@ val extract_definitions : string -> definition list
 (** Result of import extraction with metadata about skipped content *)
 type import_result = {
   lines : string list;
-  skipped_docstring : bool;
+  docstring : string option;  (** Module docstring if present *)
+  skipped_docstring : bool;   (** Deprecated: use [docstring <> None] *)
   skipped_pragmas : bool;
 }
 

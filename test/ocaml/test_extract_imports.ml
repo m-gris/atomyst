@@ -300,6 +300,67 @@ let test_find_constant_refs_type_annotation () =
   let refs = Extract.find_constant_references ~constant_names ~defn_content:content in
   Alcotest.(check int) "found both" 2 (List.length refs)
 
+(** ===== Docstring extraction tests ===== *)
+
+(** Single-line docstring is captured *)
+let test_docstring_single_line () =
+  let lines = [
+    {|"""My module docstring."""|} ^ "\n";
+    "\n";
+    "import os\n";
+    "\n";
+    "class Foo:\n";
+  ] in
+  let result = Extract.extract_imports_full lines in
+  Alcotest.(check bool) "docstring captured"
+    true (Option.is_some result.docstring);
+  let ds = Option.get result.docstring in
+  Alcotest.(check bool) "contains text"
+    true (String.length ds > 0);
+  Alcotest.(check bool) "has triple quotes"
+    true (String.sub (String.trim ds) 0 3 = {|"""|})
+
+(** Multi-line docstring is captured *)
+let test_docstring_multiline () =
+  let lines = [
+    {|"""My module.|} ^ "\n";
+    "\n";
+    "This does awesome things.\n";
+    {|"""|} ^ "\n";
+    "\n";
+    "import os\n";
+  ] in
+  let result = Extract.extract_imports_full lines in
+  Alcotest.(check bool) "docstring captured"
+    true (Option.is_some result.docstring);
+  let ds = Option.get result.docstring in
+  Alcotest.(check bool) "contains 'awesome'"
+    true (String.length ds > 0 &&
+          let re = Re.Pcre.regexp "awesome" in
+          Re.execp re ds)
+
+(** No docstring returns None *)
+let test_docstring_none () =
+  let lines = [
+    "import os\n";
+    "\n";
+    "class Foo:\n";
+  ] in
+  let result = Extract.extract_imports_full lines in
+  Alcotest.(check bool) "no docstring"
+    true (Option.is_none result.docstring)
+
+(** Single-quoted docstring is captured *)
+let test_docstring_single_quotes () =
+  let lines = [
+    "'''Single quoted docstring.'''\n";
+    "\n";
+    "import os\n";
+  ] in
+  let result = Extract.extract_imports_full lines in
+  Alcotest.(check bool) "docstring captured"
+    true (Option.is_some result.docstring)
+
 let () =
   Alcotest.run "extract_imports"
     [ ( "extract_imports",
@@ -334,5 +395,11 @@ let () =
           Alcotest.test_case "no_substring" `Quick test_find_constant_refs_no_substring;
           Alcotest.test_case "empty" `Quick test_find_constant_refs_empty;
           Alcotest.test_case "type_annotation" `Quick test_find_constant_refs_type_annotation;
+        ] );
+      ( "docstring_extraction",
+        [ Alcotest.test_case "single_line" `Quick test_docstring_single_line;
+          Alcotest.test_case "multiline" `Quick test_docstring_multiline;
+          Alcotest.test_case "none" `Quick test_docstring_none;
+          Alcotest.test_case "single_quotes" `Quick test_docstring_single_quotes;
         ] )
     ]

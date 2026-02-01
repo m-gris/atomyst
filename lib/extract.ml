@@ -173,6 +173,7 @@ let adjust_relative_imports ~depth_delta lines =
 (** Result of import extraction with metadata *)
 type import_result = {
   lines : string list;
+  docstring : string option;
   skipped_docstring : bool;
   skipped_pragmas : bool;
 }
@@ -186,6 +187,7 @@ type import_state = {
   type_checking_indent : int; (** Indentation level of TYPE_CHECKING *)
   in_docstring : bool;        (** Inside multi-line docstring? *)
   docstring_delim : string option; (** Delimiter for current docstring *)
+  docstring_lines : string list;   (** Accumulated docstring lines (reversed) *)
   done_extracting : bool;     (** Stop processing further lines *)
   saw_docstring : bool;       (** Did we see a module-level docstring? *)
   saw_pragmas : bool;         (** Did we see pragma comments? *)
@@ -200,6 +202,7 @@ let make_initial_state ~keep_pragmas = {
   type_checking_indent = 0;
   in_docstring = false;
   docstring_delim = None;
+  docstring_lines = [];
   done_extracting = false;
   saw_docstring = false;
   saw_pragmas = false;
@@ -257,11 +260,12 @@ let process_line state line =
         | Some delim -> ends_with stripped delim
         | None -> false
       in
-      (* If we're before imports, skip docstring content (module-level docstring) *)
+      (* If we're before imports, capture docstring content (module-level docstring) *)
       if not state.in_imports then
         { state with
           in_docstring = not closes_docstring;
-          docstring_delim = if closes_docstring then None else state.docstring_delim }
+          docstring_delim = if closes_docstring then None else state.docstring_delim;
+          docstring_lines = line :: state.docstring_lines }
       else if closes_docstring then
         add_line { state with in_docstring = false; docstring_delim = None }
       else
@@ -295,7 +299,7 @@ let process_line state line =
       if starts_with stripped "#!" then
         add_line state
       else if starts_with stripped {|"""|} || starts_with stripped "'''" then
-        (* Skip module docstrings - just track if multi-line *)
+        (* Capture module docstrings - track if multi-line *)
         let is_multiline_open delim =
           starts_with stripped delim &&
           count_char stripped delim.[0] = 3 &&
@@ -309,6 +313,7 @@ let process_line state line =
         { state with
           in_docstring = Option.is_some docstring_delim;
           docstring_delim;
+          docstring_lines = line :: state.docstring_lines;
           saw_docstring = true }
       else if is_pragma stripped then
         (* Pragma comment - keep or skip based on flag *)
@@ -349,7 +354,12 @@ let process_line state line =
 let extract_imports_full ?(keep_pragmas=false) (lines : string list) : import_result =
   let initial = make_initial_state ~keep_pragmas in
   let final_state = List.fold_left process_line initial lines in
+  let docstring =
+    if final_state.docstring_lines = [] then None
+    else Some (String.concat "" (List.rev final_state.docstring_lines))
+  in
   { lines = List.rev final_state.result;
+    docstring;
     skipped_docstring = final_state.saw_docstring;
     skipped_pragmas = final_state.saw_pragmas && not keep_pragmas }
 
