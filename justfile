@@ -64,3 +64,8 @@ fmt:
 # Show beads status
 beads:
     bd ready
+
+# Compile and run an OCaml script (for debugging)
+# Usage: just run-ml test/ocaml/debug_regex.ml
+run-ml file:
+    eval $(opam env) && ocamlfind ocamlopt -package re,re.pcre -linkpkg "{{file}}" -o /tmp/ocaml_debug && /tmp/ocaml_debug

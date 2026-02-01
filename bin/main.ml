@@ -74,7 +74,9 @@ let plan_atomization source source_name ~keep_pragmas =
   in
   let definitions = Extract.extract_definitions source in
   let import_result = Extract.extract_imports_full ~keep_pragmas lines in
-  let import_block = String.concat "" import_result.lines in
+  (* Adjust relative imports: when extracting foo.py to foo/, we go 1 level deeper *)
+  let adjusted_lines = Extract.adjust_relative_imports ~depth_delta:1 import_result.lines in
+  let import_block = String.concat "" adjusted_lines in
 
   let output_files =
     List.map (fun (defn : Types.definition) ->
@@ -96,6 +98,10 @@ let plan_atomization source source_name ~keep_pragmas =
         |> Array.to_list
       in
       let defn_content = String.concat "" defn_lines in
+      (* Find sibling references and generate imports *)
+      let sibling_names = Extract.find_sibling_references ~all_defns:definitions ~target_defn:defn ~defn_content in
+      let sibling_import_lines = Extract.generate_sibling_imports sibling_names in
+      let sibling_imports = String.concat "" sibling_import_lines in
       let trimmed =
         let s = defn_content in
         let len = String.length s in
@@ -106,7 +112,12 @@ let plan_atomization source source_name ~keep_pragmas =
         in
         String.sub s (find_start 0) (len - find_start 0)
       in
-      let content = import_block ^ "\n\n" ^ trimmed in
+      (* Combine: original imports + sibling imports + definition *)
+      let imports_section =
+        if sibling_imports = "" then import_block
+        else import_block ^ sibling_imports
+      in
+      let content = imports_section ^ "\n\n" ^ trimmed in
       let filename = Snake_case.to_snake_case defn.name ^ ".py" in
       { Types.relative_path = filename; content }
     ) definitions

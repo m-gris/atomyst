@@ -124,6 +124,34 @@ let extract_definitions source =
   |> dedupe_by_name
   |> to_definitions
 
+(** Regex for matching relative imports: from .xxx or from . import
+    Captures: (1) prefix "from ", (2) dots, (3) rest of line including newline
+    Note: [\s\S]* matches everything including newlines, unlike dot-star *)
+let re_relative_import = Re.Pcre.regexp {|^(\s*from\s+)(\.+)([\s\S]*)|}
+
+(** Adjust relative import depth by adding extra dots.
+    For example, with depth_delta=1:
+    - "from .foo import X" becomes "from ..foo import X"
+    - "from . import X" becomes "from .. import X"
+    - "from ..bar import Y" becomes "from ...bar import Y"
+    - "import foo" is unchanged (not relative) *)
+let adjust_relative_import ~depth_delta line =
+  if depth_delta <= 0 then line
+  else
+    match Re.exec_opt re_relative_import line with
+    | None -> line
+    | Some groups ->
+      let prefix = Re.Group.get groups 1 in  (* "from " with any leading whitespace *)
+      let dots = Re.Group.get groups 2 in    (* existing dots *)
+      let rest = Re.Group.get groups 3 in    (* rest of line after dots *)
+      let new_dots = dots ^ String.make depth_delta '.' in
+      prefix ^ new_dots ^ rest
+
+(** Adjust all relative imports in a list of lines *)
+let adjust_relative_imports ~depth_delta lines =
+  if depth_delta <= 0 then lines
+  else List.map (adjust_relative_import ~depth_delta) lines
+
 (** Result of import extraction with metadata *)
 type import_result = {
   lines : string list;
@@ -311,6 +339,28 @@ let extract_imports_full ?(keep_pragmas=false) (lines : string list) : import_re
 let extract_imports (lines : string list) : string list =
   (extract_imports_full lines).lines
 
+(** Find sibling definitions referenced in a definition's content.
+    Uses word boundary matching to find references to other definitions.
+    Returns list of definition names that are referenced. *)
+let find_sibling_references ~(all_defns : definition list) ~(target_defn : definition) ~defn_content =
+  (* Build list of other definition names (excluding self) *)
+  let sibling_names = List.filter_map (fun (d : definition) ->
+    if d.name = target_defn.name then None else Some d.name
+  ) all_defns in
+  (* Check which siblings appear as word in the content *)
+  List.filter (fun name ->
+    let pattern = Re.Pcre.regexp (Printf.sprintf {|\b%s\b|} (Re.Pcre.quote name)) in
+    Re.execp pattern defn_content
+  ) sibling_names
+
+(** Generate import lines for sibling references.
+    Returns lines like "from .sibling_module import SiblingClass\n" *)
+let generate_sibling_imports sibling_names =
+  List.map (fun name ->
+    let module_name = Snake_case.to_snake_case name in
+    Printf.sprintf "from .%s import %s\n" module_name name
+  ) sibling_names
+
 (** Find where comments immediately preceding a definition begin.
     Looks backwards from start_line to find contiguous comment lines.
     Returns the adjusted start line (1-indexed). *)
@@ -327,8 +377,8 @@ let find_comment_start lines start_line =
   scan (start_line - 2)
 
 (** Build an output file for a single definition.
-    Includes import block and any preceding comments. *)
-let build_definition_file defn lines import_block =
+    Includes import block, sibling imports, and any preceding comments. *)
+let build_definition_file ~(all_defns : definition list) (defn : definition) lines import_block =
   let actual_start = find_comment_start lines defn.start_line in
   let arr = Array.of_list lines in
   let defn_lines =
@@ -336,6 +386,10 @@ let build_definition_file defn lines import_block =
     |> Array.to_list
   in
   let defn_content = String.concat "" defn_lines in
+  (* Find and generate sibling imports *)
+  let sibling_names = find_sibling_references ~all_defns ~target_defn:defn ~defn_content in
+  let sibling_import_lines = generate_sibling_imports sibling_names in
+  let sibling_imports = String.concat "" sibling_import_lines in
   (* Trim leading newlines from definition, then add proper spacing *)
   let trimmed_content =
     let s = defn_content in
@@ -347,14 +401,19 @@ let build_definition_file defn lines import_block =
     in
     String.sub s (find_start 0) (len - find_start 0)
   in
-  let file_content = import_block ^ "\n\n" ^ trimmed_content in
+  (* Combine: original imports + sibling imports + definition *)
+  let imports_section =
+    if sibling_imports = "" then import_block
+    else import_block ^ sibling_imports
+  in
+  let file_content = imports_section ^ "\n\n" ^ trimmed_content in
   let filename = Snake_case.to_snake_case defn.name ^ ".py" in
   { relative_path = filename; content = file_content }
 
 (** Extract a single definition by name from source.
     Returns None if the definition is not found.
-    Pure: (string, string) -> extraction_result option *)
-let extract_one source name =
+    Pure: (string, string, ?depth_delta:int) -> extraction_result option *)
+let extract_one ?(depth_delta=0) source name =
   (* Split source into lines, preserving original newline structure *)
   let lines =
     let parts = String.split_on_char '\n' source in
@@ -370,14 +429,15 @@ let extract_one source name =
   in
   let definitions : definition list = extract_definitions source in
   let import_lines = extract_imports lines in
-  let import_block = String.concat "" import_lines in
+  let adjusted_lines = adjust_relative_imports ~depth_delta import_lines in
+  let import_block = String.concat "" adjusted_lines in
 
   (* Find the target definition *)
   match List.find_opt (fun (d : definition) -> d.name = name) definitions with
   | None -> None
   | Some target ->
     (* Build the extracted file *)
-    let extracted = build_definition_file target lines import_block in
+    let extracted = build_definition_file ~all_defns:definitions target lines import_block in
 
     (* Build the remainder (source with definition removed) *)
     let actual_start = find_comment_start lines target.start_line in

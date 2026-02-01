@@ -112,6 +112,104 @@ let test_multiline_docstring () =
   Alcotest.(check bool) "from typing in imports"
     true (List.mem "from typing import List\n" imports)
 
+(** Test relative import depth adjustment - single dot becomes double dot *)
+let test_adjust_relative_single_dot () =
+  let lines = [
+    "from .common import X\n";
+    "from .utils import helper\n";
+  ] in
+  let adjusted = Extract.adjust_relative_imports ~depth_delta:1 lines in
+  Alcotest.(check string) "single dot becomes double"
+    "from ..common import X\n" (List.nth adjusted 0);
+  Alcotest.(check string) "single dot becomes double (utils)"
+    "from ..utils import helper\n" (List.nth adjusted 1)
+
+(** Test relative import depth adjustment - double dot becomes triple *)
+let test_adjust_relative_double_dot () =
+  let lines = [
+    "from ..parent import Y\n";
+  ] in
+  let adjusted = Extract.adjust_relative_imports ~depth_delta:1 lines in
+  Alcotest.(check string) "double dot becomes triple"
+    "from ...parent import Y\n" (List.nth adjusted 0)
+
+(** Test relative import depth adjustment - bare dot import *)
+let test_adjust_relative_bare_dot () =
+  let lines = [
+    "from . import foo\n";
+  ] in
+  let adjusted = Extract.adjust_relative_imports ~depth_delta:1 lines in
+  Alcotest.(check string) "bare dot becomes double"
+    "from .. import foo\n" (List.nth adjusted 0)
+
+(** Test absolute imports are unchanged *)
+let test_adjust_absolute_unchanged () =
+  let lines = [
+    "import os\n";
+    "from typing import List\n";
+    "from pathlib import Path\n";
+  ] in
+  let adjusted = Extract.adjust_relative_imports ~depth_delta:1 lines in
+  Alcotest.(check string) "import os unchanged"
+    "import os\n" (List.nth adjusted 0);
+  Alcotest.(check string) "from typing unchanged"
+    "from typing import List\n" (List.nth adjusted 1);
+  Alcotest.(check string) "from pathlib unchanged"
+    "from pathlib import Path\n" (List.nth adjusted 2)
+
+(** Test depth_delta=0 makes no changes *)
+let test_adjust_zero_delta () =
+  let lines = [
+    "from .common import X\n";
+  ] in
+  let adjusted = Extract.adjust_relative_imports ~depth_delta:0 lines in
+  Alcotest.(check string) "zero delta = no change"
+    "from .common import X\n" (List.nth adjusted 0)
+
+(** Test depth_delta=2 adds two dots *)
+let test_adjust_delta_two () =
+  let lines = [
+    "from .common import X\n";
+  ] in
+  let adjusted = Extract.adjust_relative_imports ~depth_delta:2 lines in
+  Alcotest.(check string) "delta 2 adds two dots"
+    "from ...common import X\n" (List.nth adjusted 0)
+
+(** Test finding sibling references in definition content *)
+let test_find_sibling_basic () =
+  let open Types in
+  let all_defns = [
+    { name = "Foo"; kind = Class; start_line = 1; end_line = 3 };
+    { name = "Bar"; kind = Class; start_line = 5; end_line = 8 };
+    { name = "helper"; kind = Function; start_line = 10; end_line = 12 };
+  ] in
+  let target = { name = "Bar"; kind = Class; start_line = 5; end_line = 8 } in
+  let content = "class Bar:\n    foo: Foo = None\n    def use(self): helper()\n" in
+  let refs = Extract.find_sibling_references ~all_defns ~target_defn:target ~defn_content:content in
+  Alcotest.(check int) "found 2 siblings" 2 (List.length refs);
+  Alcotest.(check bool) "Foo referenced" true (List.mem "Foo" refs);
+  Alcotest.(check bool) "helper referenced" true (List.mem "helper" refs)
+
+(** Test that self-references are excluded *)
+let test_find_sibling_excludes_self () =
+  let open Types in
+  let all_defns = [
+    { name = "Foo"; kind = Class; start_line = 1; end_line = 3 };
+  ] in
+  let target = { name = "Foo"; kind = Class; start_line = 1; end_line = 3 } in
+  let content = "class Foo:\n    self_ref: Foo = None\n" in
+  let refs = Extract.find_sibling_references ~all_defns ~target_defn:target ~defn_content:content in
+  Alcotest.(check int) "self not referenced" 0 (List.length refs)
+
+(** Test generate_sibling_imports creates correct import lines *)
+let test_generate_sibling_imports () =
+  let imports = Extract.generate_sibling_imports ["Foo"; "BarBaz"] in
+  Alcotest.(check int) "2 imports generated" 2 (List.length imports);
+  Alcotest.(check string) "Foo import"
+    "from .foo import Foo\n" (List.nth imports 0);
+  Alcotest.(check string) "BarBaz import"
+    "from .bar_baz import BarBaz\n" (List.nth imports 1)
+
 let () =
   Alcotest.run "extract_imports"
     [ ( "extract_imports",
@@ -121,5 +219,18 @@ let () =
           Alcotest.test_case "shebang" `Quick test_shebang;
           Alcotest.test_case "type_checking" `Quick test_type_checking;
           Alcotest.test_case "multiline_docstring" `Quick test_multiline_docstring;
+        ] );
+      ( "adjust_relative_imports",
+        [ Alcotest.test_case "single_dot" `Quick test_adjust_relative_single_dot;
+          Alcotest.test_case "double_dot" `Quick test_adjust_relative_double_dot;
+          Alcotest.test_case "bare_dot" `Quick test_adjust_relative_bare_dot;
+          Alcotest.test_case "absolute_unchanged" `Quick test_adjust_absolute_unchanged;
+          Alcotest.test_case "zero_delta" `Quick test_adjust_zero_delta;
+          Alcotest.test_case "delta_two" `Quick test_adjust_delta_two;
+        ] );
+      ( "sibling_imports",
+        [ Alcotest.test_case "find_basic" `Quick test_find_sibling_basic;
+          Alcotest.test_case "excludes_self" `Quick test_find_sibling_excludes_self;
+          Alcotest.test_case "generate_imports" `Quick test_generate_sibling_imports;
         ] )
     ]
