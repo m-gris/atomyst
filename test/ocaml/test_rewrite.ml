@@ -193,6 +193,34 @@ def process(q: Query) -> Response:
     Alcotest.(check string) "found import module"
       "..pkg.models" imp.target_module
 
+(** Test that find_imports_from_module works with multi-line imports (GitHub #13) *)
+let test_find_consumer_imports_multiline () =
+  let consumer_source = {|"""Consumer with multi-line import."""
+
+from ..pkg.models import (
+    Optional,
+    dataclass,
+    Query,
+    Response,
+)
+
+
+def process(q: Query) -> Response:
+    return Response(data=q.text)
+|} in
+  let target_module = "..pkg.models" in
+  let imports = Rewrite.find_imports_from_module ~consumer_source ~target_module in
+
+  if List.length imports = 0 then
+    Alcotest.fail "No imports found for multi-line import"
+  else begin
+    let imp = List.hd imports in
+    let names = List.map (fun n -> n.Rewrite.name) imp.names in
+    Alcotest.(check int) "4 names found" 4 (List.length names);
+    Alcotest.(check bool) "Optional found" true (List.mem "Optional" names);
+    Alcotest.(check bool) "Query found" true (List.mem "Query" names)
+  end
+
 (** Test suite *)
 let () =
   Alcotest.run "rewrite"
@@ -219,5 +247,6 @@ let () =
         [ Alcotest.test_case "module_path_matching" `Quick test_module_path_matching;
           Alcotest.test_case "find_imports_exact" `Quick test_find_consumer_imports_exact;
           Alcotest.test_case "find_imports_suffix" `Quick test_find_consumer_imports_suffix;
+          Alcotest.test_case "find_imports_multiline" `Quick test_find_consumer_imports_multiline;
         ] )
     ]

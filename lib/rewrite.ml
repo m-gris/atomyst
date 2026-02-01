@@ -182,9 +182,13 @@ let resource_dir =
       in
       find_root (Sys.getcwd ())
 
-(** Regex for parsing tree-sitter query capture output *)
+(** Regex for parsing tree-sitter query capture output.
+    Handles two formats:
+    - Named: "capture: import.statement, start: ..."
+    - Numbered: "capture: 0 - import.name, start: ..."
+    Note: text field is optional - tree-sitter omits it for multi-line captures. *)
 let re_capture = Re.Pcre.regexp
-  {|capture: \d+ - ([^,]+), start: \((\d+), (\d+)\), end: \((\d+), (\d+)\), text: `([^`]*)`|}
+  {|capture: (?:\d+ - )?([^,]+), start: \((\d+), (\d+)\), end: \((\d+), (\d+)\)(?:, text: `([^`]*)`)?|}
 
 (** Run tree-sitter import query on source and parse results *)
 let run_import_query source =
@@ -225,13 +229,14 @@ let parse_capture_line line =
   match Re.exec_opt re_capture line with
   | None -> None
   | Some groups ->
+    let text = try Re.Group.get groups 6 with Not_found -> "" in
     Some {
       capture_name = Re.Group.get groups 1;
       start_row = int_of_string (Re.Group.get groups 2);
       start_col = int_of_string (Re.Group.get groups 3);
       end_row = int_of_string (Re.Group.get groups 4);
       end_col = int_of_string (Re.Group.get groups 5);
-      text = Re.Group.get groups 6;
+      text;
     }
 
 (** Parse all captures from tree-sitter output *)
