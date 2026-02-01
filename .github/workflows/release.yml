@@ -61,17 +61,24 @@ jobs:
       - name: Build atomyst
         run: opam exec -- dune build --release
 
-      - name: Package binary
+      - name: Package bundle
         run: |
-          mkdir -p dist
-          cp _build/default/bin/main.exe dist/atomyst-${{ matrix.platform }}
-          chmod +x dist/atomyst-${{ matrix.platform }}
+          mkdir -p dist/atomyst
+          cp _build/default/bin/main.exe dist/atomyst/atomyst
+          chmod +x dist/atomyst/atomyst
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cp python.dylib dist/atomyst/
+          else
+            cp python.so dist/atomyst/
+          fi
+          cp -r queries dist/atomyst/
+          cd dist && tar -czf atomyst-${{ matrix.platform }}.tar.gz atomyst
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: atomyst-${{ matrix.platform }}
-          path: dist/atomyst-${{ matrix.platform }}
+          path: dist/atomyst-${{ matrix.platform }}.tar.gz
 
   release:
     name: Create Release
@@ -89,9 +96,8 @@ jobs:
         run: |
           mkdir -p release
           for dir in artifacts/atomyst-*; do
-            binary=$(basename "$dir")
-            cp "$dir/$binary" release/
-            chmod +x "release/$binary"
+            tarball=$(ls "$dir"/*.tar.gz)
+            cp "$tarball" release/
           done
           ls -la release/
 

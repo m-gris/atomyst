@@ -6,7 +6,8 @@ set -euo pipefail
 
 REPO="m-gris/atomyst"
 VERSION="${ATOMYST_VERSION:-latest}"
-INSTALL_DIR="${ATOMYST_INSTALL_DIR:-$HOME/.local/bin}"
+INSTALL_DIR="${ATOMYST_INSTALL_DIR:-$HOME/.local/share/atomyst}"
+BIN_DIR="${ATOMYST_BIN_DIR:-$HOME/.local/bin}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -53,7 +54,7 @@ get_latest_version() {
 }
 
 main() {
-    local os arch binary_name download_url
+    local os arch tarball_name download_url tmp_dir
 
     os=$(detect_os)
     arch=$(detect_arch)
@@ -66,7 +67,7 @@ main() {
         error "macOS x86_64 (Intel) is not currently supported. Consider building from source or using Rosetta."
     fi
 
-    binary_name="atomyst-${os}-${arch}"
+    tarball_name="atomyst-${os}-${arch}.tar.gz"
 
     info "Detecting platform: ${os}-${arch}"
 
@@ -81,37 +82,52 @@ main() {
 
     info "Installing atomyst v${VERSION}..."
 
-    download_url="https://github.com/${REPO}/releases/download/v${VERSION}/${binary_name}"
+    download_url="https://github.com/${REPO}/releases/download/v${VERSION}/${tarball_name}"
 
-    # Create install directory
-    mkdir -p "$INSTALL_DIR"
+    # Create temp directory
+    tmp_dir=$(mktemp -d)
+    trap "rm -rf '$tmp_dir'" EXIT
 
-    # Download binary
-    info "Downloading ${binary_name}..."
-    if ! curl -fsSL "$download_url" -o "${INSTALL_DIR}/atomyst"; then
-        error "Failed to download ${binary_name}. Check if v${VERSION} exists at https://github.com/${REPO}/releases"
+    # Download tarball
+    info "Downloading ${tarball_name}..."
+    if ! curl -fsSL "$download_url" -o "${tmp_dir}/${tarball_name}"; then
+        error "Failed to download ${tarball_name}. Check if v${VERSION} exists at https://github.com/${REPO}/releases"
     fi
 
-    # Make executable
+    # Extract and install
+    info "Extracting..."
+    tar -xzf "${tmp_dir}/${tarball_name}" -C "$tmp_dir"
+
+    # Remove old installation if exists
+    rm -rf "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR"
+    mkdir -p "$BIN_DIR"
+
+    # Move files to install directory
+    mv "${tmp_dir}/atomyst/"* "$INSTALL_DIR/"
     chmod +x "${INSTALL_DIR}/atomyst"
 
-    info "Installed atomyst to ${INSTALL_DIR}/atomyst"
+    # Create symlink in bin directory
+    ln -sf "${INSTALL_DIR}/atomyst" "${BIN_DIR}/atomyst"
 
-    # Check if install dir is in PATH
-    if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
+    info "Installed atomyst to ${INSTALL_DIR}/"
+    info "Symlinked to ${BIN_DIR}/atomyst"
+
+    # Check if bin dir is in PATH
+    if ! echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
         warn ""
-        warn "Note: ${INSTALL_DIR} is not in your PATH."
+        warn "Note: ${BIN_DIR} is not in your PATH."
         warn "Add it to your shell profile:"
         warn ""
-        warn "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+        warn "  export PATH=\"${BIN_DIR}:\$PATH\""
         warn ""
     fi
 
     # Verify installation
-    if "${INSTALL_DIR}/atomyst" --version >/dev/null 2>&1; then
+    if "${BIN_DIR}/atomyst" --version >/dev/null 2>&1; then
         info ""
         info "Installation complete!"
-        "${INSTALL_DIR}/atomyst" --version
+        "${BIN_DIR}/atomyst" --version
     else
         error "Installation verification failed. The binary may not be compatible with your system."
     fi
