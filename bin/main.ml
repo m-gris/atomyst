@@ -182,6 +182,9 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
           stem
       in
 
+      (* Track import fix result for reporting *)
+      let import_fix_result = ref None in
+
       if not dry_run then begin
         List.iter (fun (f : Types.output_file) ->
           let path = Filename.concat resolved_output_dir f.relative_path in
@@ -193,7 +196,24 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
         let path = Filename.concat resolved_output_dir filename in
         write_file path content;
         (* Clean up unused imports with ruff *)
-        cleanup_unused_imports resolved_output_dir
+        cleanup_unused_imports resolved_output_dir;
+
+        (* Fix consumer imports that relied on re-exports *)
+        if potential_reexports <> [] then begin
+          let defined_names = List.map (fun (d : Types.definition) -> d.name) plan.definitions in
+          let reexports = List.map (fun (imp : Extract.parsed_import) ->
+            (imp.name, imp.module_path)
+          ) potential_reexports in
+          let abs_source_path =
+            if Filename.is_relative source_path then
+              Filename.concat (Sys.getcwd ()) source_path
+            else source_path
+          in
+          import_fix_result := Some (Rewrite.fix_consumer_imports
+            ~atomized_file:abs_source_path
+            ~defined_names
+            ~reexports)
+        end
       end;
 
       let output = match format_opt with
@@ -214,6 +234,17 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
         print_endline "";
         List.iter print_endline warnings
       end;
+
+      (* Report import fix results *)
+      (match !import_fix_result with
+       | None -> ()
+       | Some (Rewrite.Fixed { rewrites = _; files_changed }) ->
+         if files_changed > 0 then
+           print_endline (Printf.sprintf "\n✓ Fixed imports in %d consumer file(s)" files_changed)
+       | Some (Rewrite.StarImportError { file; line }) ->
+         print_endline (Printf.sprintf "\n⚠ Cannot fix imports: star import at %s:%d\n  Manual update required." file line)
+       | Some (Rewrite.Error msg) ->
+         print_endline (Printf.sprintf "\n⚠ Import fix error: %s" msg));
       0
     end
   end

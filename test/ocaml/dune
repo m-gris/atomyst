@@ -21,3 +21,7 @@
 (test
  (name test_render)
  (libraries atomyst alcotest str yojson))
+
+(test
+ (name test_rewrite)
+ (libraries atomyst alcotest))
