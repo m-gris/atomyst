@@ -64,11 +64,8 @@ let build_init_file definitions =
 let detect_potential_reexports import_lines definitions =
   let parsed = Extract.parse_import_names import_lines in
   let defined_names = List.map (fun (d : Types.definition) -> d.name) definitions in
-  (* Filter to non-relative imports that could be re-exported *)
+  (* Any import that isn't a definition could be a re-export *)
   List.filter (fun (imp : Extract.parsed_import) ->
-    (* Exclude relative imports - those are internal *)
-    not imp.is_relative &&
-    (* Exclude if it matches a definition name *)
     not (List.mem imp.name defined_names)
   ) parsed
 
