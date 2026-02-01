@@ -175,7 +175,9 @@ let plan_atomization source source_name ~keep_pragmas =
         Array.sub arr (actual_start - 1) (defn.end_line - actual_start + 1)
         |> Array.to_list
       in
-      let defn_content = String.concat "" defn_lines in
+      (* Adjust relative imports inside definition body (depth_delta=1 for extraction to subdir) *)
+      let adjusted_defn_lines = Extract.adjust_relative_imports ~depth_delta:1 defn_lines in
+      let defn_content = String.concat "" adjusted_defn_lines in
       (* Find sibling references and generate imports *)
       let sibling_names = Extract.find_sibling_references ~all_defns:definitions ~target_defn:defn ~defn_content in
       let sibling_import_lines = Extract.generate_sibling_imports sibling_names in
