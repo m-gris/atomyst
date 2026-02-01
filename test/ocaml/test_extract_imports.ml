@@ -210,6 +210,63 @@ let test_generate_sibling_imports () =
   Alcotest.(check string) "BarBaz import"
     "from .bar_baz import BarBaz\n" (List.nth imports 1)
 
+(** Test parse_import_names with single-line import *)
+let test_parse_import_names_single_line () =
+  let lines = ["from pydantic import Field\n"] in
+  let parsed = Extract.parse_import_names lines in
+  Alcotest.(check int) "1 import parsed" 1 (List.length parsed);
+  let imp = List.hd parsed in
+  Alcotest.(check string) "module is pydantic" "pydantic" imp.Extract.module_path;
+  Alcotest.(check string) "name is Field" "Field" imp.Extract.name
+
+(** Test parse_import_names with multi-line parenthesized import (GitHub #12) *)
+let test_parse_import_names_multiline () =
+  let lines = [
+    "from pydantic import (\n";
+    "    BaseModel,\n";
+    "    Field,\n";
+    ")\n";
+  ] in
+  let parsed = Extract.parse_import_names lines in
+  Alcotest.(check int) "2 imports parsed" 2 (List.length parsed);
+  let names = List.map (fun (p : Extract.parsed_import) -> p.name) parsed in
+  Alcotest.(check bool) "BaseModel found" true (List.mem "BaseModel" names);
+  Alcotest.(check bool) "Field found" true (List.mem "Field" names)
+
+(** Test parse_import_names with mixed single and multi-line imports (GitHub #12) *)
+let test_parse_import_names_mixed () =
+  let lines = [
+    "from beartype import beartype\n";
+    "from pydantic import (\n";
+    "    BaseModel,\n";
+    "    Field,\n";
+    "    HttpUrl,\n";
+    ")\n";
+  ] in
+  let parsed = Extract.parse_import_names lines in
+  Alcotest.(check int) "4 imports parsed" 4 (List.length parsed);
+  let names = List.map (fun (p : Extract.parsed_import) -> p.name) parsed in
+  Alcotest.(check bool) "beartype found" true (List.mem "beartype" names);
+  Alcotest.(check bool) "BaseModel found" true (List.mem "BaseModel" names);
+  Alcotest.(check bool) "Field found" true (List.mem "Field" names);
+  Alcotest.(check bool) "HttpUrl found" true (List.mem "HttpUrl" names)
+
+(** Test parse_import_names with trailing comments (real-world case) *)
+let test_parse_import_names_with_comments () =
+  let lines = [
+    "from beartype import beartype  # some comment\n";
+    "from pydantic import (  # another comment\n";
+    "    BaseModel,\n";
+    "    Field,\n";
+    ")\n";
+  ] in
+  let parsed = Extract.parse_import_names lines in
+  Alcotest.(check int) "3 imports parsed" 3 (List.length parsed);
+  let names = List.map (fun (p : Extract.parsed_import) -> p.name) parsed in
+  Alcotest.(check bool) "beartype found" true (List.mem "beartype" names);
+  Alcotest.(check bool) "BaseModel found" true (List.mem "BaseModel" names);
+  Alcotest.(check bool) "Field found" true (List.mem "Field" names)
+
 let () =
   Alcotest.run "extract_imports"
     [ ( "extract_imports",
@@ -232,5 +289,11 @@ let () =
         [ Alcotest.test_case "find_basic" `Quick test_find_sibling_basic;
           Alcotest.test_case "excludes_self" `Quick test_find_sibling_excludes_self;
           Alcotest.test_case "generate_imports" `Quick test_generate_sibling_imports;
+        ] );
+      ( "parse_import_names",
+        [ Alcotest.test_case "single_line" `Quick test_parse_import_names_single_line;
+          Alcotest.test_case "multiline" `Quick test_parse_import_names_multiline;
+          Alcotest.test_case "mixed" `Quick test_parse_import_names_mixed;
+          Alcotest.test_case "with_comments" `Quick test_parse_import_names_with_comments;
         ] )
     ]

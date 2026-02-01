@@ -372,13 +372,19 @@ let re_from_import = Re.Pcre.regexp
 let re_import = Re.Pcre.regexp
   {|^\s*import\s+(.+)$|}
 
+(** Strip trailing comment from a string *)
+let strip_comment s =
+  match String.index_opt s '#' with
+  | Some idx -> String.sub s 0 idx
+  | None -> s
+
 (** Parse a single name from import list, handling "X as Y" *)
 let parse_import_name s =
-  let s = String.trim s in
+  let s = String.trim (strip_comment s) in
   (* Handle "X as Y" - return Y as the name *)
   match String.split_on_char ' ' s with
   | [name; "as"; alias] -> Some (String.trim name, String.trim alias)
-  | [name] when String.length name > 0 && name.[0] <> '#' -> Some (name, name)
+  | [name] when String.length name > 0 -> Some (name, name)
   | _ -> None
 
 (** Parse import names from a "from X import Y, Z" statement *)
@@ -400,6 +406,33 @@ let parse_from_import module_path names_str =
     | None -> None
   ) parts
 
+(** Join multi-line imports (parenthesized) into single lines.
+    Tracks open parens and joins lines until closing paren. *)
+let join_multiline_imports lines =
+  let rec loop acc current_stmt in_parens = function
+    | [] ->
+      (* Flush any remaining statement *)
+      if current_stmt <> "" then List.rev (current_stmt :: acc)
+      else List.rev acc
+    | line :: rest ->
+      let trimmed = String.trim (strip_comment line) in
+      if in_parens then begin
+        (* Inside parentheses - append to current statement *)
+        let new_stmt = current_stmt ^ " " ^ trimmed in
+        if String.contains trimmed ')' then
+          (* Closing paren - statement complete *)
+          loop (new_stmt :: acc) "" false rest
+        else
+          loop acc new_stmt true rest
+      end else if starts_with trimmed "from " && String.contains trimmed '(' && not (String.contains trimmed ')') then
+        (* Opening paren without closing - start multi-line *)
+        loop acc trimmed true rest
+      else
+        (* Regular single-line statement *)
+        loop (trimmed :: acc) "" false rest
+  in
+  loop [] "" false lines
+
 (** Extract imported names from import lines.
     Returns list of parsed imports with module path and name. *)
 let parse_import_names (import_lines : string list) : parsed_import list =
@@ -407,6 +440,8 @@ let parse_import_names (import_lines : string list) : parsed_import list =
   (* Normalize: remove line continuations and join lines *)
   let lines = String.split_on_char '\n' full_text in
   let lines = List.filter (fun s -> String.trim s <> "") lines in
+  (* Join multi-line parenthesized imports into single lines *)
+  let lines = join_multiline_imports lines in
 
   List.concat_map (fun line ->
     let line = String.trim line in
