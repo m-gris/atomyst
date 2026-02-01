@@ -17,3 +17,7 @@
  (libraries atomyst alcotest)
  (deps (source_tree ../../test/fixtures))
  (action (chdir %{project_root} (run %{test}))))
+
+(test
+ (name test_render)
+ (libraries atomyst alcotest str yojson))
