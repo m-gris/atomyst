@@ -25,3 +25,7 @@
 (test
  (name test_rewrite)
  (libraries atomyst alcotest))
+
+(test
+ (name test_python_parser)
+ (libraries atomyst alcotest))

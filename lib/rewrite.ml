@@ -155,180 +155,6 @@ let resolve_relative_import ~from_file ~module_ref =
     else if base = "" then after_dots
     else base ^ "." ^ after_dots
 
-(** Grammar filename varies by platform *)
-let grammar_file =
-  let ic = Unix.open_process_in "uname -s" in
-  let os = try input_line ic with End_of_file -> "Unknown" in
-  let _ = Unix.close_process_in ic in
-  if os = "Darwin" then "python.dylib" else "python.so"
-
-(** Resource directory - detected at runtime *)
-let resource_dir =
-  let has_grammar dir = Sys.file_exists (Filename.concat dir grammar_file) in
-  match Sys.getenv_opt "ATOMYST_HOME" with
-  | Some dir when has_grammar dir -> dir
-  | _ ->
-    let exe_dir = Filename.dirname Sys.executable_name in
-    if has_grammar exe_dir then exe_dir
-    else
-      let rec find_root dir =
-        if has_grammar dir then dir
-        else
-          let parent = Filename.dirname dir in
-          if parent = dir then
-            failwith (Printf.sprintf
-              "Cannot find %s. Set ATOMYST_HOME or install properly." grammar_file)
-          else find_root parent
-      in
-      find_root (Sys.getcwd ())
-
-(** Regex for parsing tree-sitter query capture output.
-    Handles two formats:
-    - Named: "capture: import.statement, start: ..."
-    - Numbered: "capture: 0 - import.name, start: ..."
-    Note: text field is optional - tree-sitter omits it for multi-line captures. *)
-let re_capture = Re.Pcre.regexp
-  {|capture: (?:\d+ - )?([^,]+), start: \((\d+), (\d+)\), end: \((\d+), (\d+)\)(?:, text: `([^`]*)`)?|}
-
-(** Run tree-sitter import query on source and parse results *)
-let run_import_query source =
-  let tmp_file = Filename.temp_file "atomyst_import_" ".py" in
-  let oc = open_out tmp_file in
-  output_string oc source;
-  close_out oc;
-  let dylib = Filename.concat resource_dir grammar_file in
-  let query = Filename.concat resource_dir "queries/consumer_imports.scm" in
-  let cmd = Printf.sprintf
-    "tree-sitter query --lib-path %s --lang-name python %s %s 2>&1"
-    (Filename.quote dylib)
-    (Filename.quote query)
-    (Filename.quote tmp_file)
-  in
-  let ic = Unix.open_process_in cmd in
-  let buf = Buffer.create 4096 in
-  (try
-    while true do
-      Buffer.add_channel buf ic 1
-    done
-  with End_of_file -> ());
-  let _ = Unix.close_process_in ic in
-  Sys.remove tmp_file;
-  Buffer.contents buf
-
-(** Parse a single capture line from tree-sitter output *)
-type raw_capture = {
-  capture_name : string;
-  start_row : int;
-  start_col : int;
-  end_row : int;
-  end_col : int;
-  text : string;
-}
-
-let parse_capture_line line =
-  match Re.exec_opt re_capture line with
-  | None -> None
-  | Some groups ->
-    let text = try Re.Group.get groups 6 with Not_found -> "" in
-    Some {
-      capture_name = Re.Group.get groups 1;
-      start_row = int_of_string (Re.Group.get groups 2);
-      start_col = int_of_string (Re.Group.get groups 3);
-      end_row = int_of_string (Re.Group.get groups 4);
-      end_col = int_of_string (Re.Group.get groups 5);
-      text;
-    }
-
-(** Parse all captures from tree-sitter output *)
-let parse_all_captures output =
-  let lines = String.split_on_char '\n' output in
-  List.filter_map (fun line ->
-    let trimmed = String.trim line in
-    if starts_with trimmed "capture:" then
-      parse_capture_line trimmed
-    else
-      None
-  ) lines
-
-(** Group captures by import statement position.
-    Since the same statement appears multiple times (once per name),
-    we need to merge all names for each unique statement position. *)
-let group_by_statement captures =
-  (* Key: (start_row, start_col, end_row, end_col) *)
-  let tbl = Hashtbl.create 16 in
-  List.iter (fun cap ->
-    if cap.capture_name = "import.statement" then begin
-      let key = (cap.start_row, cap.start_col, cap.end_row, cap.end_col) in
-      if not (Hashtbl.mem tbl key) then
-        Hashtbl.add tbl key { cap with capture_name = "import.statement" }
-    end
-  ) captures;
-  (* Now collect all captures for each statement *)
-  Hashtbl.fold (fun key stmt acc ->
-    let (sr, _sc, er, _ec) = key in
-    (* Find all captures that belong to this statement *)
-    let related = List.filter (fun c ->
-      c.start_row >= sr && c.start_row <= er &&
-      (c.capture_name = "import.module" ||
-       c.capture_name = "import.name" ||
-       c.capture_name = "import.original" ||
-       c.capture_name = "import.alias" ||
-       c.capture_name = "import.star")
-    ) captures in
-    (stmt :: related) :: acc
-  ) tbl []
-
-(** Build consumer_import from grouped captures *)
-let build_consumer_import captures =
-  let find_capture name =
-    List.find_opt (fun c -> c.capture_name = name) captures
-  in
-  match find_capture "import.statement" with
-  | None -> None
-  | Some stmt ->
-    let module_cap = find_capture "import.module" in
-    let target_module = match module_cap with
-      | Some c -> c.text
-      | None -> ""
-    in
-    let is_relative = String.length target_module > 0 && target_module.[0] = '.' in
-    (* Check for star import *)
-    let has_star =
-      List.exists (fun c -> c.capture_name = "import.star") captures
-    in
-    (* Collect all imported names and aliases *)
-    let name_captures =
-      List.filter (fun c -> c.capture_name = "import.name") captures
-    in
-    let original_captures =
-      List.filter (fun c -> c.capture_name = "import.original") captures
-    in
-    let alias_captures =
-      List.filter (fun c -> c.capture_name = "import.alias") captures
-    in
-    (* Build import names *)
-    let names =
-      (* First add aliased imports *)
-      let aliased = List.map2 (fun orig alias ->
-        { name = alias.text; original_name = orig.text; has_alias = true }
-      ) original_captures alias_captures in
-      (* Then add simple names *)
-      let simple = List.map (fun c ->
-        { name = c.text; original_name = c.text; has_alias = false }
-      ) name_captures in
-      aliased @ simple
-    in
-    Some {
-      target_module;
-      names;
-      start_row = stmt.start_row;
-      start_col = stmt.start_col;
-      end_row = stmt.end_row;
-      end_col = stmt.end_col;
-      is_relative;
-      has_star;
-    }
-
 (** Get the last component of a dotted module path *)
 let module_basename module_path =
   match List.rev (String.split_on_char '.' module_path) with
@@ -342,12 +168,43 @@ let ends_with s suffix =
   s_len >= suffix_len &&
   String.sub s (s_len - suffix_len) suffix_len = suffix
 
-(** Find all imports in consumer source that reference the target module *)
+(** Convert Python_parser.import_stmt to consumer_import.
+    Only handles ImportFrom since we're looking for "from X import Y" *)
+let consumer_import_of_pyre (stmt : Python_parser.import_stmt) : consumer_import option =
+  match stmt with
+  | Python_parser.Import _ ->
+    (* We only care about "from X import Y", not "import X" *)
+    None
+  | Python_parser.ImportFrom { module_; names; level; loc } ->
+    (* Build target_module: dots + module name *)
+    let dots = String.make level '.' in
+    let target_module = match module_ with
+      | Some m -> dots ^ m
+      | None -> dots
+    in
+    let is_relative = level > 0 in
+    let has_star = List.exists (fun (a : Python_parser.import_alias) -> a.name = "*") names in
+    let import_names = List.map (fun (a : Python_parser.import_alias) ->
+      let has_alias = Option.is_some a.asname in
+      let alias_name = Option.value ~default:a.name a.asname in
+      { name = alias_name; original_name = a.name; has_alias }
+    ) names in
+    Some {
+      target_module;
+      names = import_names;
+      start_row = loc.start_line;
+      start_col = loc.start_col;
+      end_row = loc.end_line;
+      end_col = loc.end_col;
+      is_relative;
+      has_star;
+    }
+
+(** Find all imports in consumer source that reference the target module.
+    Uses pyre-ast for typed Python parsing. *)
 let find_imports_from_module ~consumer_source ~target_module =
-  let output = run_import_query consumer_source in
-  let all_captures = parse_all_captures output in
-  let grouped = group_by_statement all_captures in
-  let imports = List.filter_map build_consumer_import grouped in
+  let parsed = Python_parser.extract_imports consumer_source in
+  let imports = List.filter_map consumer_import_of_pyre parsed in
   (* Filter to imports from target module *)
   List.filter (fun imp ->
     imp.target_module = target_module ||

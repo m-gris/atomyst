@@ -364,107 +364,36 @@ type parsed_import = {
   is_relative : bool;    (** True if relative import (starts with .) *)
 }
 
-(** Regex for "from X import Y" - captures module and name *)
-let re_from_import = Re.Pcre.regexp
-  {|^\s*from\s+([.\w]+)\s+import\s+(.+)$|}
-
-(** Regex for "import X" *)
-let re_import = Re.Pcre.regexp
-  {|^\s*import\s+(.+)$|}
-
-(** Strip trailing comment from a string *)
-let strip_comment s =
-  match String.index_opt s '#' with
-  | Some idx -> String.sub s 0 idx
-  | None -> s
-
-(** Parse a single name from import list, handling "X as Y" *)
-let parse_import_name s =
-  let s = String.trim (strip_comment s) in
-  (* Handle "X as Y" - return Y as the name *)
-  match String.split_on_char ' ' s with
-  | [name; "as"; alias] -> Some (String.trim name, String.trim alias)
-  | [name] when String.length name > 0 -> Some (name, name)
-  | _ -> None
-
-(** Parse import names from a "from X import Y, Z" statement *)
-let parse_from_import module_path names_str =
-  let is_relative = String.length module_path > 0 && module_path.[0] = '.' in
-  (* Split by comma, handling possible multi-line with parens *)
-  let names_str =
-    (* Remove parens if present *)
-    let s = String.trim names_str in
-    let s = if starts_with s "(" then String.sub s 1 (String.length s - 1) else s in
-    let s = if ends_with s ")" then String.sub s 0 (String.length s - 1) else s in
-    s
-  in
-  let parts = String.split_on_char ',' names_str in
-  List.filter_map (fun part ->
-    match parse_import_name part with
-    | Some (_original, alias) ->
-      Some { module_path; name = alias; is_relative }
-    | None -> None
-  ) parts
-
-(** Join multi-line imports (parenthesized) into single lines.
-    Tracks open parens and joins lines until closing paren. *)
-let join_multiline_imports lines =
-  let rec loop acc current_stmt in_parens = function
-    | [] ->
-      (* Flush any remaining statement *)
-      if current_stmt <> "" then List.rev (current_stmt :: acc)
-      else List.rev acc
-    | line :: rest ->
-      let trimmed = String.trim (strip_comment line) in
-      if in_parens then begin
-        (* Inside parentheses - append to current statement *)
-        let new_stmt = current_stmt ^ " " ^ trimmed in
-        if String.contains trimmed ')' then
-          (* Closing paren - statement complete *)
-          loop (new_stmt :: acc) "" false rest
-        else
-          loop acc new_stmt true rest
-      end else if starts_with trimmed "from " && String.contains trimmed '(' && not (String.contains trimmed ')') then
-        (* Opening paren without closing - start multi-line *)
-        loop acc trimmed true rest
-      else
-        (* Regular single-line statement *)
-        loop (trimmed :: acc) "" false rest
-  in
-  loop [] "" false lines
+(** Convert Python_parser import to parsed_import list.
+    Uses pyre-ast for typed Python parsing. *)
+let parsed_imports_of_stmt (stmt : Python_parser.import_stmt) : parsed_import list =
+  match stmt with
+  | Python_parser.Import { names; _ } ->
+    (* "import X" - module_path is the full name *)
+    List.map (fun (a : Python_parser.import_alias) ->
+      let name = Option.value ~default:a.name a.asname in
+      { module_path = name; name; is_relative = false }
+    ) names
+  | Python_parser.ImportFrom { module_; names; level; _ } ->
+    (* "from X import Y" - build module_path with dots *)
+    let dots = String.make level '.' in
+    let module_path = match module_ with
+      | Some m -> dots ^ m
+      | None -> dots
+    in
+    let is_relative = level > 0 in
+    List.map (fun (a : Python_parser.import_alias) ->
+      let name = Option.value ~default:a.name a.asname in
+      { module_path; name; is_relative }
+    ) names
 
 (** Extract imported names from import lines.
-    Returns list of parsed imports with module path and name. *)
+    Returns list of parsed imports with module path and name.
+    Uses pyre-ast for typed Python parsing. *)
 let parse_import_names (import_lines : string list) : parsed_import list =
-  let full_text = String.concat "" import_lines in
-  (* Normalize: remove line continuations and join lines *)
-  let lines = String.split_on_char '\n' full_text in
-  let lines = List.filter (fun s -> String.trim s <> "") lines in
-  (* Join multi-line parenthesized imports into single lines *)
-  let lines = join_multiline_imports lines in
-
-  List.concat_map (fun line ->
-    let line = String.trim line in
-    (* Skip continuation lines starting with names (handled by parent) *)
-    if not (starts_with line "from ") && not (starts_with line "import ") then []
-    else match Re.exec_opt re_from_import line with
-    | Some groups ->
-      let module_path = Re.Group.get groups 1 in
-      let names = Re.Group.get groups 2 in
-      parse_from_import module_path names
-    | None ->
-      match Re.exec_opt re_import line with
-      | Some groups ->
-        let names = Re.Group.get groups 1 in
-        let parts = String.split_on_char ',' names in
-        List.filter_map (fun part ->
-          match parse_import_name part with
-          | Some (_original, alias) ->
-            Some { module_path = alias; name = alias; is_relative = false }
-          | None -> None
-        ) parts
-      | None -> []
-  ) lines
+  let source = String.concat "\n" import_lines in
+  let stmts = Python_parser.extract_imports source in
+  List.concat_map parsed_imports_of_stmt stmts
 
 (** Find sibling definitions referenced in a definition's content.
     Uses word boundary matching to find references to other definitions.

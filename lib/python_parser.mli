@@ -1,0 +1,41 @@
+(** Pure OCaml Python parsing via pyre-ast.
+
+    Replaces tree-sitter + regex parsing with typed AST.
+    Uses CPython under the hood for 100% parsing fidelity.
+*)
+
+(** Location in source file (0-indexed for compatibility with existing code) *)
+type location = {
+  start_line : int;
+  start_col : int;
+  end_line : int;
+  end_col : int;
+}
+
+(** An imported name with optional alias *)
+type import_alias = {
+  name : string;           (** The name being imported *)
+  asname : string option;  (** Optional "as X" alias *)
+  loc : location;          (** Location of this alias *)
+}
+
+(** A Python import statement *)
+type import_stmt =
+  | Import of {
+      names : import_alias list;  (** import X, Y, Z *)
+      loc : location;
+    }
+  | ImportFrom of {
+      module_ : string option;    (** None for "from . import X" *)
+      names : import_alias list;  (** The imported names *)
+      level : int;                (** Number of dots (0 = absolute) *)
+      loc : location;
+    }
+
+(** Parse Python source and extract all import statements.
+    Returns empty list on parse error (non-fatal). *)
+val extract_imports : string -> import_stmt list
+
+(** Parse Python source and extract all import statements with errors.
+    Returns (imports, error_opt) where error_opt is set on parse failure. *)
+val extract_imports_with_error : string -> import_stmt list * string option
