@@ -187,13 +187,11 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
           let path = Filename.concat resolved_output_dir f.relative_path in
           write_file path f.content
         ) plan.output_files;
-        (* Generate manifest if requested *)
-        (match manifest_opt with
-         | Some format ->
-           let (content, filename) = Render.manifest ~format ~source_name ~definitions:plan.definitions in
-           let path = Filename.concat resolved_output_dir filename in
-           write_file path content
-         | None -> ());
+        (* Always generate manifest - essential for preserving original order *)
+        let manifest_format = Option.value manifest_opt ~default:"yaml" in
+        let (content, filename) = Render.manifest ~format:manifest_format ~source_name ~definitions:plan.definitions in
+        let path = Filename.concat resolved_output_dir filename in
+        write_file path content;
         (* Clean up unused imports with ruff *)
         cleanup_unused_imports resolved_output_dir
       end;
