@@ -277,6 +277,32 @@ let test_adjust_import_absolute () =
   in
   Alcotest.(check string) "absolute unchanged" "pydantic" result
 
+let test_adjust_import_cross_package () =
+  (* GitHub #15: Consumer in different package from source
+     Source: agentic_chatbot/domain_models.py has "from .common import X"
+     Consumer: models/frontend.py (different package!)
+     Target absolute: agentic_chatbot.common
+     Expected: ..agentic_chatbot.common *)
+  let result = Rewrite.adjust_import_for_consumer
+    ~source_file:"agentic_chatbot/domain_models.py"
+    ~consumer_file:"models/frontend.py"
+    ~original_import:".common"
+  in
+  Alcotest.(check string) "cross-package" "..agentic_chatbot.common" result
+
+let test_adjust_import_cross_package_nested () =
+  (* Consumer in nested different package
+     Source: pkg/sub/models.py has "from .utils import X"
+     Consumer: other/deep/consumer.py
+     Target absolute: pkg.sub.utils
+     Expected: ...pkg.sub.utils (3 dots to go up 2 levels) *)
+  let result = Rewrite.adjust_import_for_consumer
+    ~source_file:"pkg/sub/models.py"
+    ~consumer_file:"other/deep/consumer.py"
+    ~original_import:".utils"
+  in
+  Alcotest.(check string) "cross-package nested" "...pkg.sub.utils" result
+
 (** Test suite *)
 let () =
   Alcotest.run "rewrite"
@@ -305,6 +331,8 @@ let () =
           Alcotest.test_case "deeper_init" `Quick test_adjust_import_deeper_init;
           Alcotest.test_case "shallower_consumer" `Quick test_adjust_import_shallower_consumer;
           Alcotest.test_case "absolute" `Quick test_adjust_import_absolute;
+          Alcotest.test_case "cross_package" `Quick test_adjust_import_cross_package;
+          Alcotest.test_case "cross_package_nested" `Quick test_adjust_import_cross_package_nested;
         ] );
       ( "integration",
         [ Alcotest.test_case "module_path_matching" `Quick test_module_path_matching;

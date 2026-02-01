@@ -214,35 +214,48 @@ let find_imports_from_module ~consumer_source ~target_module =
      ends_with imp.target_module ("." ^ module_name))
   ) imports
 
-(** Get directory depth (number of path components) for a file *)
-let file_depth file =
+(** Get directory parts for a file (excludes the filename itself) *)
+let dir_parts file =
   let dir = Filename.dirname file in
-  if dir = "." then 0
+  if dir = "." then []
   else
     let parts = String.split_on_char '/' dir in
-    List.length (List.filter (fun s -> s <> "" && s <> ".") parts)
+    List.filter (fun s -> s <> "" && s <> ".") parts
+
+(** Find length of common prefix between two lists *)
+let rec common_prefix_length l1 l2 =
+  match l1, l2 with
+  | x :: xs, y :: ys when x = y -> 1 + common_prefix_length xs ys
+  | _ -> 0
+
+(** Compute relative import from consumer file to absolute module path.
+    E.g., consumer="models/frontend.py", target="agentic_chatbot.common"
+    returns "..agentic_chatbot.common" *)
+let compute_relative_import ~consumer_file ~absolute_module =
+  let consumer_parts = dir_parts consumer_file in
+  let target_parts = String.split_on_char '.' absolute_module in
+  let common_len = common_prefix_length consumer_parts target_parts in
+  (* Number of dots = levels up from consumer to common ancestor + 1 *)
+  let levels_up = List.length consumer_parts - common_len in
+  let dots = levels_up + 1 in
+  (* Path after dots = target parts after common prefix *)
+  let rec drop n lst = if n <= 0 then lst else match lst with [] -> [] | _ :: t -> drop (n-1) t in
+  let after_common = drop common_len target_parts in
+  let path_after_dots = String.concat "." after_common in
+  (String.make dots '.') ^ path_after_dots
 
 (** Adjust a relative import for a different consumer file location.
-    If original_import is ".common" relative to source_file,
-    returns the correct relative import for consumer_file. *)
+    Resolves the original import to absolute, then computes relative from consumer. *)
 let adjust_import_for_consumer ~source_file ~consumer_file ~original_import =
   let dots = count_leading_dots original_import in
   if dots = 0 then
     (* Absolute import - no adjustment needed *)
     original_import
   else
-    (* Get depth difference between source and consumer *)
-    let source_depth = file_depth source_file in
-    let consumer_depth = file_depth consumer_file in
-    let depth_diff = consumer_depth - source_depth in
-    (* Adjust number of dots *)
-    let new_dots = dots + depth_diff in
-    if new_dots <= 0 then
-      (* This shouldn't happen in practice - would mean invalid import *)
-      original_import
-    else
-      let after_dots = String.sub original_import dots (String.length original_import - dots) in
-      (String.make new_dots '.') ^ after_dots
+    (* Resolve to absolute module path *)
+    let absolute = resolve_relative_import ~from_file:source_file ~module_ref:original_import in
+    (* Compute relative import from consumer *)
+    compute_relative_import ~consumer_file ~absolute_module:absolute
 
 (** Classify an import name *)
 let classify_import_name ~name ~defined_names ~reexports =
