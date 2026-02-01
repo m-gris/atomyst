@@ -138,7 +138,7 @@ let build_warnings skipped_docstring skipped_pragmas =
   List.rev warnings
 
 (** Run atomization *)
-let run_atomize source_path output_dir dry_run format_opt keep_pragmas =
+let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt =
   if not (Sys.file_exists source_path) then begin
     print_endline (Render.error (Printf.sprintf "%s does not exist" source_path));
     1
@@ -163,6 +163,13 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas =
           let path = Filename.concat resolved_output_dir f.relative_path in
           write_file path f.content
         ) plan.output_files;
+        (* Generate manifest if requested *)
+        (match manifest_opt with
+         | Some format ->
+           let (content, filename) = Render.manifest ~format ~source_name ~definitions:plan.definitions in
+           let path = Filename.concat resolved_output_dir filename in
+           write_file path content
+         | None -> ());
         (* Clean up unused imports with ruff *)
         cleanup_unused_imports resolved_output_dir
       end;
@@ -268,11 +275,11 @@ let run_list source_path format_opt organized =
   end
 
 (** Main entry point *)
-let main source_path output_dir dry_run format_opt extract_name keep_pragmas list_mode organized =
+let main source_path output_dir dry_run format_opt extract_name keep_pragmas list_mode organized manifest_opt =
   match list_mode, extract_name with
   | true, _ -> run_list source_path format_opt organized
   | false, Some name -> run_extract source_path name output_dir dry_run format_opt keep_pragmas
-  | false, None -> run_atomize source_path output_dir dry_run format_opt keep_pragmas
+  | false, None -> run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt
 
 (* Cmdliner terms *)
 
@@ -308,10 +315,14 @@ let organized_arg =
   let doc = "Group definitions by kind (only with --list)" in
   Arg.(value & flag & info ["organized"] ~doc)
 
+let manifest_arg =
+  let doc = "Generate manifest file preserving original definition order. Format: yaml, json, or md" in
+  Arg.(value & opt (some string) None & info ["manifest"] ~docv:"FORMAT" ~doc)
+
 let cmd =
   let doc = "Atomize Python source files into one-definition-per-file structure" in
   let info = Cmd.info "atomyst" ~version ~doc in
-  let term = Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg) in
+  let term = Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg) in
   Cmd.v info term
 
 let () =

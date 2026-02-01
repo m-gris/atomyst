@@ -29,3 +29,8 @@ val list_text : Types.definition list -> source_name:string -> organized:bool ->
 
 val list_json : Types.definition list -> source_name:string -> string
 (** [list_json definitions ~source_name] renders a definition list as JSON. *)
+
+val manifest : format:string -> source_name:string -> definitions:Types.definition list -> string * string
+(** [manifest ~format ~source_name ~definitions] renders a manifest file
+    preserving the original definition order. Returns (content, filename).
+    Format can be "yaml", "json", or "md". *)

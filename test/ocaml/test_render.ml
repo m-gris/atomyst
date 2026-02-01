@@ -97,6 +97,44 @@ let test_error () =
   Alcotest.(check string) "error format"
     "Error: something went wrong" output
 
+(** Test manifest YAML format *)
+let test_manifest_yaml () =
+  let definitions = [
+    { name = "Foo"; kind = Class; start_line = 1; end_line = 5 };
+    { name = "bar"; kind = Function; start_line = 7; end_line = 10 };
+  ] in
+  let (content, filename) = Render.manifest ~format:"yaml" ~source_name:"test.py" ~definitions in
+  Alcotest.(check string) "filename" "MANIFEST.yaml" filename;
+  Alcotest.(check bool) "contains source"
+    true (let _ = Str.search_forward (Str.regexp "source: test.py") content 0 in true);
+  Alcotest.(check bool) "contains Foo"
+    true (let _ = Str.search_forward (Str.regexp "name: Foo") content 0 in true);
+  Alcotest.(check bool) "contains foo.py"
+    true (let _ = Str.search_forward (Str.regexp "file: foo.py") content 0 in true)
+
+(** Test manifest JSON format *)
+let test_manifest_json () =
+  let definitions = [
+    { name = "Foo"; kind = Class; start_line = 1; end_line = 5 };
+  ] in
+  let (content, filename) = Render.manifest ~format:"json" ~source_name:"test.py" ~definitions in
+  Alcotest.(check string) "filename" "MANIFEST.json" filename;
+  let json = Yojson.Basic.from_string content in
+  let source = Yojson.Basic.Util.(json |> member "source" |> to_string) in
+  Alcotest.(check string) "source field" "test.py" source
+
+(** Test manifest MD format *)
+let test_manifest_md () =
+  let definitions = [
+    { name = "Foo"; kind = Class; start_line = 1; end_line = 5 };
+  ] in
+  let (content, filename) = Render.manifest ~format:"md" ~source_name:"test.py" ~definitions in
+  Alcotest.(check string) "filename" "MANIFEST.md" filename;
+  Alcotest.(check bool) "contains header"
+    true (let _ = Str.search_forward (Str.regexp "# Atomyst Manifest") content 0 in true);
+  Alcotest.(check bool) "contains table"
+    true (let _ = Str.search_forward (Str.regexp "| File |") content 0 in true)
+
 let () =
   Alcotest.run "render"
     [ ( "render",
@@ -106,5 +144,10 @@ let () =
           Alcotest.test_case "extraction_text_written" `Quick test_extraction_text_written;
           Alcotest.test_case "extraction_json" `Quick test_extraction_json;
           Alcotest.test_case "error" `Quick test_error;
+        ] );
+      ( "manifest",
+        [ Alcotest.test_case "yaml" `Quick test_manifest_yaml;
+          Alcotest.test_case "json" `Quick test_manifest_json;
+          Alcotest.test_case "md" `Quick test_manifest_md;
         ] )
     ]

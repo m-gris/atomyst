@@ -60,14 +60,28 @@ atomyst mymodule.py --extract MyClass
 atomyst mymodule.py --extract MyClass -o output/
 ```
 
+### Generate manifest (preserve original structure)
+
+```bash
+# Generate MANIFEST.yaml alongside extracted files
+atomyst mymodule.py --manifest yaml
+
+# JSON or Markdown format
+atomyst mymodule.py --manifest json
+atomyst mymodule.py --manifest md
+```
+
 ## Features
 
 - **Automatic import cleanup** - Unused imports are removed via `ruff` (silent if not installed)
+- **Relative import adjustment** - `from .foo import X` becomes `from ..foo import X` when extracting to subdirectory
+- **Sibling import generation** - Cross-references between definitions get automatic `from .sibling import Name` imports
 - **Module docstring handling** - Skipped by default (with warning), since it describes the original file
 - **Pragma handling** - File-level pragmas (`# mypy:`, `# type:`, etc.) skipped by default; use `--keep-pragmas` to include
 - **Shebang preservation** - `#!/usr/bin/env python3` lines are kept
 - **`__init__.py` generation** - Auto-generated with re-exports and `__all__`
 - **TYPE_CHECKING blocks** - Preserved in import section
+- **Manifest generation** - `--manifest yaml|json|md` creates a MANIFEST file preserving original definition order
 
 ## Example
 
