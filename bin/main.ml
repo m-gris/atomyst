@@ -70,10 +70,19 @@ let detect_potential_reexports import_lines definitions =
   ) parsed
 
 (** Build _constants.py content from constants and import block.
-    Pure function: assembles the file content. *)
-let build_constants_file ~import_block ~constants =
+    Pure function: assembles the file content.
+    Detects references to sibling definitions and generates imports for them. *)
+let build_constants_file ~import_block ~constants ~definitions =
   if constants = [] then None
   else
+    (* Combine all constant source texts to find sibling references *)
+    let all_constants_text = String.concat "\n"
+      (List.map (fun (c : Python_parser.module_constant) -> c.source_text) constants) in
+    let defn_names = List.map (fun (d : Types.definition) -> d.name) definitions in
+    let referenced_defns = Extract.find_constant_references
+      ~constant_names:defn_names ~defn_content:all_constants_text in
+    let sibling_imports = Extract.generate_sibling_imports referenced_defns in
+
     let buf = Buffer.create 512 in
     Buffer.add_string buf {|"""Module-level constants extracted by atomyst."""|};
     Buffer.add_string buf "\n\n";
@@ -84,6 +93,9 @@ let build_constants_file ~import_block ~constants =
         Buffer.add_string buf "\n";
       Buffer.add_string buf "\n"
     end;
+    (* Add sibling imports for referenced definitions *)
+    List.iter (fun line -> Buffer.add_string buf line) sibling_imports;
+    if sibling_imports <> [] then Buffer.add_string buf "\n";
     (* Add each constant's source text *)
     List.iter (fun (c : Python_parser.module_constant) ->
       Buffer.add_string buf c.source_text;
@@ -195,7 +207,7 @@ let plan_atomization source source_name ~keep_pragmas =
     ) definitions
   in
   let init_file = build_init_file definitions in
-  let constants_file = build_constants_file ~import_block ~constants in
+  let constants_file = build_constants_file ~import_block ~constants ~definitions in
   let constant_refs = detect_constant_references source definitions in
   let all_output_files =
     let base = output_files @ [init_file] in
