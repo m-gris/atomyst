@@ -40,9 +40,15 @@ type rewrite = {
   new_text : string;
 }
 
+(** Details about imports fixed in a single file *)
+type import_fix_detail = {
+  file_path : string;
+  names_moved : (string * string * string) list;  (** (name, from_module, to_module) *)
+}
+
 (** Result of attempting to fix consumer imports *)
 type fix_result =
-  | Fixed of { rewrites : rewrite list; files_changed : int }
+  | Fixed of { rewrites : rewrite list; files_changed : int; details : import_fix_detail list }
   | StarImportError of { file : string; line : int }
   | Error of string
 
@@ -500,11 +506,12 @@ let fix_consumer_imports ~atomized_file ~defined_names ~reexports =
     let atomized_module = module_path_of_file ~root atomized_file in
 
     let all_rewrites = ref [] in
+    let all_details = ref [] in
     let files_changed = ref 0 in
 
     (* Process each Python file *)
     let rec process_files = function
-      | [] -> Fixed { rewrites = !all_rewrites; files_changed = !files_changed }
+      | [] -> Fixed { rewrites = !all_rewrites; files_changed = !files_changed; details = !all_details }
       | file :: rest ->
         let file_path = Filename.concat root file in
         (* Skip the atomized file itself *)
@@ -522,6 +529,9 @@ let fix_consumer_imports ~atomized_file ~defined_names ~reexports =
           | Some star_import ->
             StarImportError { file = file_path; line = star_import.start_row + 1 }
           | None ->
+            (* Track names moved for this file *)
+            let file_names_moved = ref [] in
+
             (* Generate rewrites for each import *)
             let file_rewrites = List.filter_map (fun import ->
               let classifications = List.map (fun n ->
@@ -535,6 +545,14 @@ let fix_consumer_imports ~atomized_file ~defined_names ~reexports =
 
               if not needs_rewrite then None
               else begin
+                (* Track which names moved where *)
+                List.iter (fun (name, classification) ->
+                  match classification with
+                  | Reexport { original_module } ->
+                    file_names_moved := (name, import.target_module, original_module) :: !file_names_moved
+                  | _ -> ()
+                ) classifications;
+
                 let new_text = generate_replacement_imports ~import ~classifications in
                 (* Get old text from source *)
                 let lines = Array.of_list (String.split_on_char '\n' source) in
@@ -570,6 +588,7 @@ let fix_consumer_imports ~atomized_file ~defined_names ~reexports =
 
             if file_rewrites <> [] then begin
               all_rewrites := file_rewrites @ !all_rewrites;
+              all_details := { file_path; names_moved = List.rev !file_names_moved } :: !all_details;
               incr files_changed;
               (* Apply rewrites to file *)
               apply_rewrites ~file_path ~rewrites:file_rewrites

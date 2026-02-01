@@ -138,7 +138,7 @@ let plan_atomization source source_name ~keep_pragmas =
   (plan, import_result.skipped_docstring, import_result.skipped_pragmas, potential_reexports)
 
 (** Build warning messages for skipped content and potential issues *)
-let build_warnings skipped_docstring skipped_pragmas potential_reexports =
+let build_warnings skipped_docstring skipped_pragmas potential_reexports ~preserve_reexports =
   let warnings = [] in
   let warnings = if skipped_docstring then
     "⚠ Module docstring was NOT copied to extracted files.\n  Review the original and distribute manually if needed." :: warnings
@@ -150,19 +150,27 @@ let build_warnings skipped_docstring skipped_pragmas potential_reexports =
     let names = List.map (fun (imp : Extract.parsed_import) ->
       Printf.sprintf "  - %s (from %s)" imp.name imp.module_path
     ) potential_reexports in
-    let warning = Printf.sprintf
-      "⚠ Potential broken re-exports detected.\n\
-       The following imports won't be available from the generated __init__.py:\n%s\n\
-       If other code imports these from this module, update those imports\n\
-       to use the original source instead."
-      (String.concat "\n" names)
+    let warning =
+      if preserve_reexports then
+        Printf.sprintf
+          "⚠ Potential re-exports detected (--preserve-reexports enabled, consumers NOT fixed).\n\
+           The following imports won't be available from the generated __init__.py:\n%s\n\
+           If other code imports these from this module, update those imports manually."
+          (String.concat "\n" names)
+      else
+        Printf.sprintf
+          "⚠ Potential broken re-exports detected.\n\
+           The following imports won't be available from the generated __init__.py:\n%s\n\
+           If other code imports these from this module, update those imports\n\
+           to use the original source instead."
+          (String.concat "\n" names)
     in
     warning :: warnings
   else warnings in
   List.rev warnings
 
 (** Run atomization *)
-let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt =
+let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt preserve_reexports =
   if not (Sys.file_exists source_path) then begin
     print_endline (Render.error (Printf.sprintf "%s does not exist" source_path));
     1
@@ -198,8 +206,8 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
         (* Clean up unused imports with ruff *)
         cleanup_unused_imports resolved_output_dir;
 
-        (* Fix consumer imports that relied on re-exports *)
-        if potential_reexports <> [] then begin
+        (* Fix consumer imports that relied on re-exports (unless --preserve-reexports) *)
+        if potential_reexports <> [] && not preserve_reexports then begin
           let defined_names = List.map (fun (d : Types.definition) -> d.name) plan.definitions in
           let reexports = List.map (fun (imp : Extract.parsed_import) ->
             (imp.name, imp.module_path)
@@ -229,7 +237,7 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
       print_endline output;
 
       (* Print warnings at the end *)
-      let warnings = build_warnings skipped_docstring skipped_pragmas potential_reexports in
+      let warnings = build_warnings skipped_docstring skipped_pragmas potential_reexports ~preserve_reexports in
       if warnings <> [] then begin
         print_endline "";
         List.iter print_endline warnings
@@ -238,9 +246,16 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
       (* Report import fix results *)
       (match !import_fix_result with
        | None -> ()
-       | Some (Rewrite.Fixed { rewrites = _; files_changed }) ->
-         if files_changed > 0 then
-           print_endline (Printf.sprintf "\n✓ Fixed imports in %d consumer file(s)" files_changed)
+       | Some (Rewrite.Fixed { rewrites = _; files_changed; details }) ->
+         if files_changed > 0 then begin
+           print_endline (Printf.sprintf "\n✓ Fixed imports in %d consumer file(s):" files_changed);
+           List.iter (fun (detail : Rewrite.import_fix_detail) ->
+             print_endline (Printf.sprintf "  %s:" detail.file_path);
+             List.iter (fun (name, _from_mod, to_mod) ->
+               print_endline (Printf.sprintf "    %s → %s" name to_mod)
+             ) detail.names_moved
+           ) details
+         end
        | Some (Rewrite.StarImportError { file; line }) ->
          print_endline (Printf.sprintf "\n⚠ Cannot fix imports: star import at %s:%d\n  Manual update required." file line)
        | Some (Rewrite.Error msg) ->
@@ -301,7 +316,7 @@ let run_extract source_path name output_dir dry_run format_opt keep_pragmas =
       print_endline output;
 
       (* Print warnings at the end - no re-export warnings for single extraction *)
-      let warnings = build_warnings import_result.skipped_docstring import_result.skipped_pragmas [] in
+      let warnings = build_warnings import_result.skipped_docstring import_result.skipped_pragmas [] ~preserve_reexports:false in
       if warnings <> [] then begin
         print_endline "";
         List.iter print_endline warnings
@@ -328,11 +343,11 @@ let run_list source_path format_opt organized =
   end
 
 (** Main entry point *)
-let main source_path output_dir dry_run format_opt extract_name keep_pragmas list_mode organized manifest_opt =
+let main source_path output_dir dry_run format_opt extract_name keep_pragmas list_mode organized manifest_opt preserve_reexports =
   match list_mode, extract_name with
   | true, _ -> run_list source_path format_opt organized
   | false, Some name -> run_extract source_path name output_dir dry_run format_opt keep_pragmas
-  | false, None -> run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt
+  | false, None -> run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt preserve_reexports
 
 (* Cmdliner terms *)
 
@@ -372,10 +387,14 @@ let manifest_arg =
   let doc = "Generate manifest file preserving original definition order. Format: yaml, json, or md" in
   Arg.(value & opt (some string) None & info ["manifest"] ~docv:"FORMAT" ~doc)
 
+let preserve_reexports_arg =
+  let doc = "Skip fixing consumer imports. Use when re-exports are intentional (library code with external consumers)." in
+  Arg.(value & flag & info ["preserve-reexports"] ~doc)
+
 let cmd =
   let doc = "Atomize Python source files into one-definition-per-file structure" in
   let info = Cmd.info "atomyst" ~version ~doc in
-  let term = Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg) in
+  let term = Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg $ preserve_reexports_arg) in
   Cmd.v info term
 
 let () =

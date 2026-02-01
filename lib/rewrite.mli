@@ -46,9 +46,15 @@ type rewrite = {
   new_text : string;
 }
 
+(** Details about imports fixed in a single file *)
+type import_fix_detail = {
+  file_path : string;
+  names_moved : (string * string * string) list;  (** (name, from_module, to_module) *)
+}
+
 (** Result of attempting to fix consumer imports *)
 type fix_result =
-  | Fixed of { rewrites : rewrite list; files_changed : int }
+  | Fixed of { rewrites : rewrite list; files_changed : int; details : import_fix_detail list }
   | StarImportError of { file : string; line : int }
   | Error of string
 
