@@ -409,6 +409,14 @@ let find_sibling_references ~(all_defns : definition list) ~(target_defn : defin
     Re.execp pattern defn_content
   ) sibling_names
 
+(** Find which constant names are referenced in content.
+    Pure function: list filtering via word-boundary regex. *)
+let find_constant_references ~constant_names ~defn_content =
+  List.filter (fun name ->
+    let pattern = Re.Pcre.regexp (Printf.sprintf {|\b%s\b|} (Re.Pcre.quote name)) in
+    Re.execp pattern defn_content
+  ) constant_names
+
 (** Generate import lines for sibling references.
     Returns lines like "from .sibling_module import SiblingClass\n" *)
 let generate_sibling_imports sibling_names =

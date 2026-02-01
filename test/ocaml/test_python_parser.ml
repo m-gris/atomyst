@@ -24,7 +24,7 @@ let test_multiple_imports () =
   Alcotest.(check int) "one import stmt" 1 (List.length imports);
   match List.hd imports with
   | Python_parser.Import { names; _ } ->
-    let names_str = List.map (fun a -> a.Python_parser.name) names in
+    let names_str = List.map (fun (a : Python_parser.import_alias) -> a.name) names in
     Alcotest.(check (list string)) "three names" ["os"; "sys"; "re"] names_str
   | _ -> Alcotest.fail "expected Import"
 
@@ -48,7 +48,7 @@ let test_from_import () =
   | Python_parser.ImportFrom { module_; names; level; _ } ->
     Alcotest.(check (option string)) "module" (Some "typing") module_;
     Alcotest.(check int) "level 0" 0 level;
-    let names_str = List.map (fun a -> a.Python_parser.name) names in
+    let names_str = List.map (fun (a : Python_parser.import_alias) -> a.name) names in
     Alcotest.(check (list string)) "two names" ["Optional"; "List"] names_str
   | _ -> Alcotest.fail "expected ImportFrom"
 
@@ -164,6 +164,106 @@ let test_parse_error_with_message () =
   Alcotest.(check int) "empty on error" 0 (List.length imports);
   Alcotest.(check bool) "has error" true (Option.is_some err)
 
+(** === Tests for extract_constants === *)
+
+(** Simple assignment: NAME = value *)
+let test_simple_assign () =
+  let source = "FOO = 42" in
+  let constants = Python_parser.extract_constants source in
+  Alcotest.(check int) "one constant" 1 (List.length constants);
+  Alcotest.(check string) "name" "FOO" (List.hd constants).name
+
+(** Annotated assignment: NAME: type = value *)
+let test_annotated_assign () =
+  let source = {|SQL_TYPES: Dict[str, str] = {"int": "INTEGER"}|} in
+  let constants = Python_parser.extract_constants source in
+  Alcotest.(check int) "one constant" 1 (List.length constants);
+  Alcotest.(check string) "name" "SQL_TYPES" (List.hd constants).name
+
+(** Source text is captured correctly *)
+let test_source_text () =
+  let source = {|FOO = 42
+BAR: int = 100|} in
+  let constants = Python_parser.extract_constants source in
+  Alcotest.(check int) "two constants" 2 (List.length constants);
+  let foo = List.hd constants in
+  let bar = List.nth constants 1 in
+  Alcotest.(check string) "FOO source" "FOO = 42\n" foo.source_text;
+  Alcotest.(check string) "BAR source" "BAR: int = 100\n" bar.source_text
+
+(** Multi-line constant source text *)
+let test_source_text_multiline () =
+  let source = {|MAPPING = {
+    "a": 1,
+    "b": 2,
+}|} in
+  let constants = Python_parser.extract_constants source in
+  Alcotest.(check int) "one constant" 1 (List.length constants);
+  let c = List.hd constants in
+  Alcotest.(check bool) "spans multiple lines" true
+    (String.length c.source_text > 20)
+
+(** Annotated without value: NAME: type *)
+let test_annotated_no_value () =
+  let source = "logger: Logger" in
+  let constants = Python_parser.extract_constants source in
+  Alcotest.(check int) "one constant" 1 (List.length constants);
+  Alcotest.(check string) "name" "logger" (List.hd constants).name
+
+(** Multiple constants *)
+let test_multiple_constants () =
+  let source = {|FOO = 1
+BAR: int = 2
+BAZ = "hello"|} in
+  let constants = Python_parser.extract_constants source in
+  Alcotest.(check int) "three constants" 3 (List.length constants);
+  let names = List.map (fun (c : Python_parser.module_constant) -> c.name) constants in
+  Alcotest.(check (list string)) "names" ["FOO"; "BAR"; "BAZ"] names
+
+(** Dunder names are skipped *)
+let test_skip_dunder () =
+  let source = {|__all__ = ["Foo"]
+__version__ = "1.0"
+NORMAL = 42|} in
+  let constants = Python_parser.extract_constants source in
+  Alcotest.(check int) "only NORMAL" 1 (List.length constants);
+  Alcotest.(check string) "name" "NORMAL" (List.hd constants).name
+
+(** Tuple unpacking is skipped (not simple Name target) *)
+let test_skip_tuple_unpack () =
+  let source = {|a, b = 1, 2
+SIMPLE = 3|} in
+  let constants = Python_parser.extract_constants source in
+  Alcotest.(check int) "only SIMPLE" 1 (List.length constants);
+  Alcotest.(check string) "name" "SIMPLE" (List.hd constants).name
+
+(** Attribute assignment is skipped *)
+let test_skip_attribute () =
+  let source = {|self.foo = 1
+MODULE = 2|} in
+  let constants = Python_parser.extract_constants source in
+  Alcotest.(check int) "only MODULE" 1 (List.length constants)
+
+(** Class/function definitions are not constants *)
+let test_skip_definitions () =
+  let source = {|CONST = 1
+
+class Foo:
+    pass
+
+def bar():
+    pass|} in
+  let constants = Python_parser.extract_constants source in
+  Alcotest.(check int) "only CONST" 1 (List.length constants)
+
+(** Location is correct *)
+let test_constant_location () =
+  let source = {|# comment
+CONST = 42|} in
+  let constants = Python_parser.extract_constants source in
+  let c = List.hd constants in
+  Alcotest.(check int) "line 1 (0-indexed)" 1 c.loc.start_line
+
 let () =
   Alcotest.run "python_parser"
     [ ( "import",
@@ -190,5 +290,18 @@ let () =
       ( "errors",
         [ Alcotest.test_case "parse_error" `Quick test_parse_error;
           Alcotest.test_case "error_message" `Quick test_parse_error_with_message;
+        ] );
+      ( "constants",
+        [ Alcotest.test_case "simple_assign" `Quick test_simple_assign;
+          Alcotest.test_case "annotated_assign" `Quick test_annotated_assign;
+          Alcotest.test_case "source_text" `Quick test_source_text;
+          Alcotest.test_case "source_text_multiline" `Quick test_source_text_multiline;
+          Alcotest.test_case "annotated_no_value" `Quick test_annotated_no_value;
+          Alcotest.test_case "multiple" `Quick test_multiple_constants;
+          Alcotest.test_case "skip_dunder" `Quick test_skip_dunder;
+          Alcotest.test_case "skip_tuple_unpack" `Quick test_skip_tuple_unpack;
+          Alcotest.test_case "skip_attribute" `Quick test_skip_attribute;
+          Alcotest.test_case "skip_definitions" `Quick test_skip_definitions;
+          Alcotest.test_case "location" `Quick test_constant_location;
         ] );
     ]

@@ -267,6 +267,39 @@ let test_parse_import_names_with_comments () =
   Alcotest.(check bool) "BaseModel found" true (List.mem "BaseModel" names);
   Alcotest.(check bool) "Field found" true (List.mem "Field" names)
 
+(** === Tests for find_constant_references === *)
+
+(** Basic detection of constants in definition content *)
+let test_find_constant_refs_basic () =
+  let constant_names = ["FOO"; "BAR"; "BAZ"] in
+  let content = "class Query:\n    mapping = FOO\n    other = BAR\n" in
+  let refs = Extract.find_constant_references ~constant_names ~defn_content:content in
+  Alcotest.(check int) "found 2 constants" 2 (List.length refs);
+  Alcotest.(check bool) "FOO found" true (List.mem "FOO" refs);
+  Alcotest.(check bool) "BAR found" true (List.mem "BAR" refs);
+  Alcotest.(check bool) "BAZ not found" false (List.mem "BAZ" refs)
+
+(** No false positives from substrings *)
+let test_find_constant_refs_no_substring () =
+  let constant_names = ["FOO"] in
+  let content = "FOOBAR = 1\n" in
+  let refs = Extract.find_constant_references ~constant_names ~defn_content:content in
+  Alcotest.(check int) "FOO not in FOOBAR" 0 (List.length refs)
+
+(** Empty constants list *)
+let test_find_constant_refs_empty () =
+  let constant_names = [] in
+  let content = "class Foo:\n    x = ANYTHING\n" in
+  let refs = Extract.find_constant_references ~constant_names ~defn_content:content in
+  Alcotest.(check int) "empty input -> empty output" 0 (List.length refs)
+
+(** Constant in type annotation *)
+let test_find_constant_refs_type_annotation () =
+  let constant_names = ["SqlType"; "MAPPING"] in
+  let content = "def convert(t: SqlType) -> str:\n    return MAPPING[t]\n" in
+  let refs = Extract.find_constant_references ~constant_names ~defn_content:content in
+  Alcotest.(check int) "found both" 2 (List.length refs)
+
 let () =
   Alcotest.run "extract_imports"
     [ ( "extract_imports",
@@ -295,5 +328,11 @@ let () =
           Alcotest.test_case "multiline" `Quick test_parse_import_names_multiline;
           Alcotest.test_case "mixed" `Quick test_parse_import_names_mixed;
           Alcotest.test_case "with_comments" `Quick test_parse_import_names_with_comments;
+        ] );
+      ( "constant_references",
+        [ Alcotest.test_case "basic" `Quick test_find_constant_refs_basic;
+          Alcotest.test_case "no_substring" `Quick test_find_constant_refs_no_substring;
+          Alcotest.test_case "empty" `Quick test_find_constant_refs_empty;
+          Alcotest.test_case "type_annotation" `Quick test_find_constant_refs_type_annotation;
         ] )
     ]

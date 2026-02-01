@@ -74,6 +74,12 @@ val find_sibling_references : all_defns:Types.definition list -> target_defn:Typ
     names of sibling definitions that are referenced in [defn_content].
     Uses word boundary matching to detect references. *)
 
+val find_constant_references : constant_names:string list -> defn_content:string -> string list
+(** [find_constant_references ~constant_names ~defn_content] finds which
+    constant names are referenced in [defn_content].
+    Uses word boundary matching to detect references.
+    Returns the subset of [constant_names] that appear in [defn_content]. *)
+
 val generate_sibling_imports : string list -> string list
 (** [generate_sibling_imports names] generates import lines for sibling modules.
     Returns lines like ["from .sibling_module import SiblingClass\n"]. *)

@@ -39,3 +39,15 @@ val extract_imports : string -> import_stmt list
 (** Parse Python source and extract all import statements with errors.
     Returns (imports, error_opt) where error_opt is set on parse failure. *)
 val extract_imports_with_error : string -> import_stmt list * string option
+
+(** A module-level constant (Assign, AnnAssign, or TypeAlias).
+    Excludes: dunder names (__all__, __name__), augmented assignments (+=). *)
+type module_constant = {
+  name : string;        (** The assigned name *)
+  loc : location;       (** Location in source *)
+  source_text : string; (** Raw source text of the assignment *)
+}
+
+(** Extract module-level constant definitions from Python source.
+    Returns empty list on parse error (non-fatal). *)
+val extract_constants : string -> module_constant list

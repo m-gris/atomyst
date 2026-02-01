@@ -69,7 +69,58 @@ let detect_potential_reexports import_lines definitions =
     not (List.mem imp.name defined_names)
   ) parsed
 
-(** Plan atomization of a source file. Returns (plan, skipped_docstring, skipped_pragmas, potential_reexports) *)
+(** Build _constants.py content from constants and import block.
+    Pure function: assembles the file content. *)
+let build_constants_file ~import_block ~constants =
+  if constants = [] then None
+  else
+    let buf = Buffer.create 512 in
+    Buffer.add_string buf {|"""Module-level constants extracted by atomyst."""|};
+    Buffer.add_string buf "\n\n";
+    (* Add import block if non-empty *)
+    if String.trim import_block <> "" then begin
+      Buffer.add_string buf import_block;
+      if not (String.ends_with ~suffix:"\n" import_block) then
+        Buffer.add_string buf "\n";
+      Buffer.add_string buf "\n"
+    end;
+    (* Add each constant's source text *)
+    List.iter (fun (c : Python_parser.module_constant) ->
+      Buffer.add_string buf c.source_text;
+      if not (String.ends_with ~suffix:"\n" c.source_text) then
+        Buffer.add_string buf "\n"
+    ) constants;
+    Some { Types.relative_path = "_constants.py"; content = Buffer.contents buf }
+
+(** Detect which constants are referenced by each definition.
+    Returns a list of (definition_name, [constant_names]) pairs.
+    Pure function: analysis only, no side effects. *)
+let detect_constant_references source definitions =
+  let constants = Python_parser.extract_constants source in
+  let constant_names = List.map (fun (c : Python_parser.module_constant) -> c.name) constants in
+  if constant_names = [] then []
+  else
+    let lines =
+      let parts = String.split_on_char '\n' source in
+      let parts =
+        if String.length source > 0 && source.[String.length source - 1] = '\n' then
+          match List.rev parts with
+          | "" :: rest -> List.rev rest
+          | _ -> parts
+        else parts
+      in
+      List.map (fun s -> s ^ "\n") parts
+    in
+    let arr = Array.of_list lines in
+    List.filter_map (fun (defn : Types.definition) ->
+      let defn_lines = Array.sub arr (defn.start_line - 1) (defn.end_line - defn.start_line + 1) in
+      let defn_content = String.concat "" (Array.to_list defn_lines) in
+      let refs = Extract.find_constant_references ~constant_names ~defn_content in
+      if refs = [] then None
+      else Some (defn.name, refs)
+    ) definitions
+
+(** Plan atomization of a source file. Returns (plan, skipped_docstring, skipped_pragmas, potential_reexports, constant_refs) *)
 let plan_atomization source source_name ~keep_pragmas =
   let lines =
     let parts = String.split_on_char '\n' source in
@@ -88,6 +139,10 @@ let plan_atomization source source_name ~keep_pragmas =
   (* Adjust relative imports: when extracting foo.py to foo/, we go 1 level deeper *)
   let adjusted_lines = Extract.adjust_relative_imports ~depth_delta:1 import_result.lines in
   let import_block = String.concat "" adjusted_lines in
+
+  (* Extract module-level constants *)
+  let constants = Python_parser.extract_constants source in
+  let constant_names = List.map (fun (c : Python_parser.module_constant) -> c.name) constants in
 
   let output_files =
     List.map (fun (defn : Types.definition) ->
@@ -113,6 +168,12 @@ let plan_atomization source source_name ~keep_pragmas =
       let sibling_names = Extract.find_sibling_references ~all_defns:definitions ~target_defn:defn ~defn_content in
       let sibling_import_lines = Extract.generate_sibling_imports sibling_names in
       let sibling_imports = String.concat "" sibling_import_lines in
+      (* Find constant references and generate imports *)
+      let const_refs = Extract.find_constant_references ~constant_names ~defn_content in
+      let const_import =
+        if const_refs = [] then ""
+        else Printf.sprintf "from ._constants import %s\n" (String.concat ", " const_refs)
+      in
       let trimmed =
         let s = defn_content in
         let len = String.length s in
@@ -123,10 +184,10 @@ let plan_atomization source source_name ~keep_pragmas =
         in
         String.sub s (find_start 0) (len - find_start 0)
       in
-      (* Combine: original imports + sibling imports + definition *)
+      (* Combine: original imports + sibling imports + constant imports + definition *)
       let imports_section =
-        if sibling_imports = "" then import_block
-        else import_block ^ sibling_imports
+        let base = if sibling_imports = "" then import_block else import_block ^ sibling_imports in
+        if const_import = "" then base else base ^ const_import
       in
       let content = imports_section ^ "\n\n" ^ trimmed in
       let filename = Snake_case.to_snake_case defn.name ^ ".py" in
@@ -134,11 +195,19 @@ let plan_atomization source source_name ~keep_pragmas =
     ) definitions
   in
   let init_file = build_init_file definitions in
-  let plan = { Types.source_name; definitions; output_files = output_files @ [init_file] } in
-  (plan, import_result.skipped_docstring, import_result.skipped_pragmas, potential_reexports)
+  let constants_file = build_constants_file ~import_block ~constants in
+  let constant_refs = detect_constant_references source definitions in
+  let all_output_files =
+    let base = output_files @ [init_file] in
+    match constants_file with
+    | Some cf -> base @ [cf]
+    | None -> base
+  in
+  let plan = { Types.source_name; definitions; output_files = all_output_files } in
+  (plan, import_result.skipped_docstring, import_result.skipped_pragmas, potential_reexports, constant_refs)
 
 (** Build warning messages for skipped content and potential issues *)
-let build_warnings skipped_docstring skipped_pragmas potential_reexports ~preserve_reexports =
+let build_warnings skipped_docstring skipped_pragmas potential_reexports constant_refs ~preserve_reexports =
   let warnings = [] in
   let warnings = if skipped_docstring then
     "⚠ Module docstring was NOT copied to extracted files.\n  Review the original and distribute manually if needed." :: warnings
@@ -167,6 +236,8 @@ let build_warnings skipped_docstring skipped_pragmas potential_reexports ~preser
     in
     warning :: warnings
   else warnings in
+  (* constant_refs warning removed - constants are now extracted to _constants.py *)
+  let _ = constant_refs in
   List.rev warnings
 
 (** Run atomization *)
@@ -177,7 +248,7 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
   end else begin
     let source = read_file source_path in
     let source_name = Filename.basename source_path in
-    let (plan, skipped_docstring, skipped_pragmas, potential_reexports) = plan_atomization source source_name ~keep_pragmas in
+    let (plan, skipped_docstring, skipped_pragmas, potential_reexports, constant_refs) = plan_atomization source source_name ~keep_pragmas in
 
     if plan.definitions = [] then begin
       print_endline (Printf.sprintf "No definitions found in %s" source_path);
@@ -237,7 +308,7 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
       print_endline output;
 
       (* Print warnings at the end *)
-      let warnings = build_warnings skipped_docstring skipped_pragmas potential_reexports ~preserve_reexports in
+      let warnings = build_warnings skipped_docstring skipped_pragmas potential_reexports constant_refs ~preserve_reexports in
       if warnings <> [] then begin
         print_endline "";
         List.iter print_endline warnings
@@ -316,7 +387,7 @@ let run_extract source_path name output_dir dry_run format_opt keep_pragmas =
       print_endline output;
 
       (* Print warnings at the end - no re-export warnings for single extraction *)
-      let warnings = build_warnings import_result.skipped_docstring import_result.skipped_pragmas [] ~preserve_reexports:false in
+      let warnings = build_warnings import_result.skipped_docstring import_result.skipped_pragmas [] [] ~preserve_reexports:false in
       if warnings <> [] then begin
         print_endline "";
         List.iter print_endline warnings
