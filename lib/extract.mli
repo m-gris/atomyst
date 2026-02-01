@@ -51,6 +51,22 @@ val extract_imports : string list -> string list
 (** Simple version of [extract_imports_full] for backwards compatibility.
     Returns just the lines, skipping docstrings and pragmas. *)
 
+(** Represents a parsed import statement *)
+type parsed_import = {
+  module_path : string;  (** The module being imported from *)
+  name : string;         (** The name being imported (or alias if using 'as') *)
+  is_relative : bool;    (** True if relative import (starts with .) *)
+}
+
+val parse_import_names : string list -> parsed_import list
+(** [parse_import_names import_lines] parses import lines and extracts
+    the names being imported along with their source modules.
+
+    Used to detect potential re-exports: names that are imported but not
+    defined in the source file. After atomization, these won't be available
+    from the generated __init__.py, which may break consumers that relied
+    on them as re-exports. *)
+
 val adjust_relative_imports : depth_delta:int -> string list -> string list
 
 val find_sibling_references : all_defns:Types.definition list -> target_defn:Types.definition -> defn_content:string -> string list

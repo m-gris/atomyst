@@ -59,7 +59,20 @@ let build_init_file definitions =
   Buffer.add_string buf "]\n";
   { Types.relative_path = "__init__.py"; content = Buffer.contents buf }
 
-(** Plan atomization of a source file. Returns (plan, skipped_docstring, skipped_pragmas) *)
+(** Detect potential re-exports: names imported but not defined.
+    These won't be available from the generated __init__.py. *)
+let detect_potential_reexports import_lines definitions =
+  let parsed = Extract.parse_import_names import_lines in
+  let defined_names = List.map (fun (d : Types.definition) -> d.name) definitions in
+  (* Filter to non-relative imports that could be re-exported *)
+  List.filter (fun (imp : Extract.parsed_import) ->
+    (* Exclude relative imports - those are internal *)
+    not imp.is_relative &&
+    (* Exclude if it matches a definition name *)
+    not (List.mem imp.name defined_names)
+  ) parsed
+
+(** Plan atomization of a source file. Returns (plan, skipped_docstring, skipped_pragmas, potential_reexports) *)
 let plan_atomization source source_name ~keep_pragmas =
   let lines =
     let parts = String.split_on_char '\n' source in
@@ -74,6 +87,7 @@ let plan_atomization source source_name ~keep_pragmas =
   in
   let definitions = Extract.extract_definitions source in
   let import_result = Extract.extract_imports_full ~keep_pragmas lines in
+  let potential_reexports = detect_potential_reexports import_result.lines definitions in
   (* Adjust relative imports: when extracting foo.py to foo/, we go 1 level deeper *)
   let adjusted_lines = Extract.adjust_relative_imports ~depth_delta:1 import_result.lines in
   let import_block = String.concat "" adjusted_lines in
@@ -124,16 +138,29 @@ let plan_atomization source source_name ~keep_pragmas =
   in
   let init_file = build_init_file definitions in
   let plan = { Types.source_name; definitions; output_files = output_files @ [init_file] } in
-  (plan, import_result.skipped_docstring, import_result.skipped_pragmas)
+  (plan, import_result.skipped_docstring, import_result.skipped_pragmas, potential_reexports)
 
-(** Build warning messages for skipped content *)
-let build_warnings skipped_docstring skipped_pragmas =
+(** Build warning messages for skipped content and potential issues *)
+let build_warnings skipped_docstring skipped_pragmas potential_reexports =
   let warnings = [] in
   let warnings = if skipped_docstring then
     "⚠ Module docstring was NOT copied to extracted files.\n  Review the original and distribute manually if needed." :: warnings
   else warnings in
   let warnings = if skipped_pragmas then
     "⚠ Pragma comments (# mypy:, # type:, etc.) were skipped.\n  Use --keep-pragmas to include them." :: warnings
+  else warnings in
+  let warnings = if potential_reexports <> [] then
+    let names = List.map (fun (imp : Extract.parsed_import) ->
+      Printf.sprintf "  - %s (from %s)" imp.name imp.module_path
+    ) potential_reexports in
+    let warning = Printf.sprintf
+      "⚠ Potential broken re-exports detected.\n\
+       The following imports won't be available from the generated __init__.py:\n%s\n\
+       If other code imports these from this module, update those imports\n\
+       to use the original source instead."
+      (String.concat "\n" names)
+    in
+    warning :: warnings
   else warnings in
   List.rev warnings
 
@@ -145,7 +172,7 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
   end else begin
     let source = read_file source_path in
     let source_name = Filename.basename source_path in
-    let (plan, skipped_docstring, skipped_pragmas) = plan_atomization source source_name ~keep_pragmas in
+    let (plan, skipped_docstring, skipped_pragmas, potential_reexports) = plan_atomization source source_name ~keep_pragmas in
 
     if plan.definitions = [] then begin
       print_endline (Printf.sprintf "No definitions found in %s" source_path);
@@ -187,7 +214,7 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
       print_endline output;
 
       (* Print warnings at the end *)
-      let warnings = build_warnings skipped_docstring skipped_pragmas in
+      let warnings = build_warnings skipped_docstring skipped_pragmas potential_reexports in
       if warnings <> [] then begin
         print_endline "";
         List.iter print_endline warnings
@@ -247,8 +274,8 @@ let run_extract source_path name output_dir dry_run format_opt keep_pragmas =
       in
       print_endline output;
 
-      (* Print warnings at the end *)
-      let warnings = build_warnings import_result.skipped_docstring import_result.skipped_pragmas in
+      (* Print warnings at the end - no re-export warnings for single extraction *)
+      let warnings = build_warnings import_result.skipped_docstring import_result.skipped_pragmas [] in
       if warnings <> [] then begin
         print_endline "";
         List.iter print_endline warnings

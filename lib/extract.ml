@@ -357,6 +357,80 @@ let extract_imports_full ?(keep_pragmas=false) (lines : string list) : import_re
 let extract_imports (lines : string list) : string list =
   (extract_imports_full lines).lines
 
+(** Represents a parsed import *)
+type parsed_import = {
+  module_path : string;  (** The module being imported from *)
+  name : string;         (** The name being imported (or alias) *)
+  is_relative : bool;    (** True if relative import (starts with .) *)
+}
+
+(** Regex for "from X import Y" - captures module and name *)
+let re_from_import = Re.Pcre.regexp
+  {|^\s*from\s+([.\w]+)\s+import\s+(.+)$|}
+
+(** Regex for "import X" *)
+let re_import = Re.Pcre.regexp
+  {|^\s*import\s+(.+)$|}
+
+(** Parse a single name from import list, handling "X as Y" *)
+let parse_import_name s =
+  let s = String.trim s in
+  (* Handle "X as Y" - return Y as the name *)
+  match String.split_on_char ' ' s with
+  | [name; "as"; alias] -> Some (String.trim name, String.trim alias)
+  | [name] when String.length name > 0 && name.[0] <> '#' -> Some (name, name)
+  | _ -> None
+
+(** Parse import names from a "from X import Y, Z" statement *)
+let parse_from_import module_path names_str =
+  let is_relative = String.length module_path > 0 && module_path.[0] = '.' in
+  (* Split by comma, handling possible multi-line with parens *)
+  let names_str =
+    (* Remove parens if present *)
+    let s = String.trim names_str in
+    let s = if starts_with s "(" then String.sub s 1 (String.length s - 1) else s in
+    let s = if ends_with s ")" then String.sub s 0 (String.length s - 1) else s in
+    s
+  in
+  let parts = String.split_on_char ',' names_str in
+  List.filter_map (fun part ->
+    match parse_import_name part with
+    | Some (_original, alias) ->
+      Some { module_path; name = alias; is_relative }
+    | None -> None
+  ) parts
+
+(** Extract imported names from import lines.
+    Returns list of parsed imports with module path and name. *)
+let parse_import_names (import_lines : string list) : parsed_import list =
+  let full_text = String.concat "" import_lines in
+  (* Normalize: remove line continuations and join lines *)
+  let lines = String.split_on_char '\n' full_text in
+  let lines = List.filter (fun s -> String.trim s <> "") lines in
+
+  List.concat_map (fun line ->
+    let line = String.trim line in
+    (* Skip continuation lines starting with names (handled by parent) *)
+    if not (starts_with line "from ") && not (starts_with line "import ") then []
+    else match Re.exec_opt re_from_import line with
+    | Some groups ->
+      let module_path = Re.Group.get groups 1 in
+      let names = Re.Group.get groups 2 in
+      parse_from_import module_path names
+    | None ->
+      match Re.exec_opt re_import line with
+      | Some groups ->
+        let names = Re.Group.get groups 1 in
+        let parts = String.split_on_char ',' names in
+        List.filter_map (fun part ->
+          match parse_import_name part with
+          | Some (_original, alias) ->
+            Some { module_path = alias; name = alias; is_relative = false }
+          | None -> None
+        ) parts
+      | None -> []
+  ) lines
+
 (** Find sibling definitions referenced in a definition's content.
     Uses word boundary matching to find references to other definitions.
     Returns list of definition names that are referenced. *)
