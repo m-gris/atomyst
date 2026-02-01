@@ -58,9 +58,12 @@ main() {
     os=$(detect_os)
     arch=$(detect_arch)
 
-    # Linux arm64 not currently supported
+    # Check for unsupported platforms
     if [ "$os" = "linux" ] && [ "$arch" = "arm64" ]; then
         error "Linux arm64 is not currently supported. Consider building from source."
+    fi
+    if [ "$os" = "darwin" ] && [ "$arch" = "x86_64" ]; then
+        error "macOS x86_64 (Intel) is not currently supported. Consider building from source or using Rosetta."
     fi
 
     binary_name="atomyst-${os}-${arch}"

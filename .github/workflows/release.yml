@@ -18,10 +18,10 @@ jobs:
         include:
           - os: macos-14
             platform: darwin-arm64
-          - os: macos-13-large
-            platform: darwin-x86_64
           - os: ubuntu-latest
             platform: linux-x86_64
+          # Note: macOS x86_64 dropped - GitHub retired Intel runners
+          # Can add back if cross-compilation from ARM is implemented
 
     steps:
       - uses: actions/checkout@v4
