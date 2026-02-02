@@ -44,17 +44,9 @@ let test_check_file_function_prefix () =
   Alcotest.(check file_result_testable) "def matches def_" Lint.Clean result
 
 let test_check_file_async_prefix () =
-  (* NOTE: extract_definitions currently returns Function for async functions,
-     not AsyncFunction. This is a known limitation - see issue tracking.
-     Once fixed, this test should expect Clean. *)
   let source = "async def fetch_data():\n    pass\n" in
   let result = Lint.check_file ~dir:"test" ~filename:"async_def_fetch_data.py" ~source in
-  (* Current behavior: mismatch because async is detected as Function *)
-  match result with
-  | Lint.Mismatch issue ->
-    Alcotest.(check (testable pp_definition_kind equal_definition_kind))
-      "detected as Function" Function issue.actual_kind
-  | _ -> Alcotest.fail "Expected Mismatch (known limitation: async not detected)"
+  Alcotest.(check file_result_testable) "async_def matches async_def_" Lint.Clean result
 
 let test_check_file_mismatch () =
   (* File says class_ but contains a function *)

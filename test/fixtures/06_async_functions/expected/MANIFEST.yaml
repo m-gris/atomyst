@@ -5,12 +5,12 @@ extracted: 2026-02-02
 definitions:
   - file: fetch_data.py
     name: fetch_data
-    kind: function
+    kind: async function
     lines: 7-10
 
   - file: process_items.py
     name: process_items
-    kind: function
+    kind: async function
     lines: 13-15
 
   - file: async_client.py

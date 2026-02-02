@@ -51,3 +51,19 @@ type module_constant = {
 (** Extract module-level constant definitions from Python source.
     Returns empty list on parse error (non-fatal). *)
 val extract_constants : string -> module_constant list
+
+(** A top-level definition extracted from source *)
+type extracted_definition = {
+  name : string;
+  kind : Types.definition_kind;
+  loc : location;
+}
+
+(** Extract top-level class and function definitions from Python source.
+    Returns definitions sorted by start line (ascending).
+    - FunctionDef -> Types.Function
+    - AsyncFunctionDef -> Types.AsyncFunction
+    - ClassDef -> Types.Class
+    Only top-level definitions (column 0) are included.
+    Decorated definitions include the decorator range. *)
+val extract_definitions : string -> extracted_definition list

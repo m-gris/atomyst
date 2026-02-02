@@ -67,14 +67,13 @@ let test_03_decorators () =
 (* ============================================================
    Test: 06_async_functions
    Expected from Python: fetch_data 7-10, process_items 13-15, AsyncClient 18-27
-   Note: OCaml treats async functions as Function, not AsyncFunction
    ============================================================ *)
 let test_06_async_functions () =
   let source = read_fixture "test/fixtures/06_async_functions/input.py" in
   let defs = Extract.extract_definitions source in
   Alcotest.(check definitions_testable) "async functions"
-    [ def "fetch_data" Function 7 10;
-      def "process_items" Function 13 15;
+    [ def "fetch_data" AsyncFunction 7 10;
+      def "process_items" AsyncFunction 13 15;
       def "AsyncClient" Class 18 27 ]
     defs
 

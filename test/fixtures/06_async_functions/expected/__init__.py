@@ -2,7 +2,7 @@
 
 ---
 atomyst <https://github.com/m-gris/atomyst>
-Source: input.py | 2026-02-02T07:12:25Z
+Source: input.py | 2026-02-02T10:15:46Z
 
 Large files are hostile to AI agents—they read everything to edit anything.
 One definition per file. Atomic edits. No collisions.

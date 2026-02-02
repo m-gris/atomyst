@@ -35,7 +35,7 @@ let resource_dir =
 
 (** Run tree-sitter query on source and return raw output.
     Writes source to a temp file, runs tree-sitter query, returns stdout. *)
-let run_tree_sitter_query source =
+let _run_tree_sitter_query source =
   (* Write source to temp file *)
   let tmp_file = Filename.temp_file "atomyst_" ".py" in
   let oc = open_out tmp_file in
@@ -82,7 +82,7 @@ let re_name_capture = Re.Pcre.regexp
 (** Parse tree-sitter query output into raw captures.
     Each capture combines a def range with a name.
     Rows/cols are 0-indexed as tree-sitter reports them. *)
-let parse_query_output output =
+let _parse_query_output output =
   let lines = String.split_on_char '\n' output in
   (* Parse in pairs: def line followed by name line *)
   let rec parse_patterns acc = function
@@ -104,13 +104,13 @@ let parse_query_output output =
   parse_patterns [] lines
 
 (** Filter to top-level definitions (start_col = 0) *)
-let filter_top_level captures =
+let _filter_top_level captures =
   List.filter (fun c -> c.start_col = 0) captures
 
 (** Deduplicate by name, keeping earliest start_row for each name.
     This handles the case where decorated_definition and inner definition
     both match - we want the decorated one (earlier start). *)
-let dedupe_by_name captures =
+let _dedupe_by_name captures =
   (* Group by name, keeping earliest *)
   let tbl = Hashtbl.create 16 in
   List.iter (fun c ->
@@ -125,7 +125,7 @@ let dedupe_by_name captures =
   |> List.sort (fun a b -> compare a.start_row b.start_row)
 
 (** Convert captures to definition records, converting to 1-indexed lines *)
-let to_definitions captures : definition list =
+let _to_definitions captures : definition list =
   List.map (fun c ->
     { name = c.name;
       kind = c.kind;
@@ -135,12 +135,13 @@ let to_definitions captures : definition list =
   ) captures
 
 let extract_definitions source =
-  source
-  |> run_tree_sitter_query
-  |> parse_query_output
-  |> filter_top_level
-  |> dedupe_by_name
-  |> to_definitions
+  Python_parser.extract_definitions source
+  |> List.map (fun (d : Python_parser.extracted_definition) ->
+    { name = d.name;
+      kind = d.kind;
+      start_line = d.loc.start_line + 1;  (* 0-indexed to 1-indexed *)
+      end_line = d.loc.end_line + 1;
+    })
 
 (** Regex for matching relative imports: from .xxx or from . import
     Captures: (1) prefix "from ", (2) dots, (3) rest of line including newline
