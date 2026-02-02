@@ -523,7 +523,8 @@ let run_list source_path format_opt organized =
   end
 
 (** Main entry point *)
-let main source_path output_dir dry_run format_opt extract_name keep_pragmas list_mode organized manifest_opt preserve_reexports keep_original prefix_kind =
+let main source_path output_dir dry_run format_opt extract_name keep_pragmas list_mode organized manifest_opt preserve_reexports keep_original no_prefix_kind =
+  let prefix_kind = not no_prefix_kind in
   match list_mode, extract_name with
   | true, _ -> run_list source_path format_opt organized
   | false, Some name -> run_extract source_path name output_dir dry_run format_opt keep_pragmas
@@ -575,9 +576,9 @@ let keep_original_arg =
   let doc = "Keep original file after atomization. By default, the original is removed if it's git-tracked with no uncommitted changes." in
   Arg.(value & flag & info ["keep-original"] ~doc)
 
-let prefix_kind_arg =
-  let doc = "Prefix filenames with definition kind (e.g., class_user.py, def_calculate.py)" in
-  Arg.(value & flag & info ["prefix-kind"] ~doc)
+let no_prefix_kind_arg =
+  let doc = "Don't prefix filenames with definition kind (default: prefixed)" in
+  Arg.(value & flag & info ["no-prefix-kind"] ~doc)
 
 (* ============================================================================
    Lint subcommand
@@ -631,13 +632,13 @@ let lint_cmd =
 let atomize_cmd =
   let doc = "Atomize a Python source file" in
   let info = Cmd.info "atomize" ~doc in
-  let term = Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg $ preserve_reexports_arg $ keep_original_arg $ prefix_kind_arg) in
+  let term = Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg $ preserve_reexports_arg $ keep_original_arg $ no_prefix_kind_arg) in
   Cmd.v info term
 
 let cmd =
   let doc = "Atomize Python source files into one-definition-per-file structure" in
   let info = Cmd.info "atomyst" ~version ~doc in
-  Cmd.group info ~default:(Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg $ preserve_reexports_arg $ keep_original_arg $ prefix_kind_arg)) [atomize_cmd; lint_cmd]
+  Cmd.group info ~default:(Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg $ preserve_reexports_arg $ keep_original_arg $ no_prefix_kind_arg)) [atomize_cmd; lint_cmd]
 
 let () =
   match Cmd.eval_value cmd with

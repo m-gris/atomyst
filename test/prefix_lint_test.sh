@@ -17,8 +17,9 @@ fail() { echo "✗ $1"; FAIL=$((FAIL + 1)); }
 echo "=== Integration: --prefix-kind + lint ==="
 
 eval $(opam env)
+# Default is now prefix-kind, no flag needed
 dune exec atomyst -- atomize test/fixtures/17_prefix_kind/input.py \
-    -o "$TMPDIR/prefixed" --prefix-kind --keep-original >/dev/null
+    -o "$TMPDIR/prefixed" --keep-original >/dev/null
 
 if dune exec atomyst -- lint "$TMPDIR/prefixed" >/dev/null 2>&1; then
     pass "lint passes on correctly prefixed output"
@@ -36,9 +37,9 @@ else
     pass "lint fails on mismatched prefix"
 fi
 
-# Test 3: atomize without --prefix-kind, lint should pass (no prefixes to check)
+# Test 3: atomize with --no-prefix-kind, lint should pass (no prefixes to check)
 dune exec atomyst -- atomize test/fixtures/01_simple_class/input.py \
-    -o "$TMPDIR/unprefixed" --keep-original >/dev/null
+    -o "$TMPDIR/unprefixed" --no-prefix-kind --keep-original >/dev/null
 
 if dune exec atomyst -- lint "$TMPDIR/unprefixed" >/dev/null 2>&1; then
     pass "lint passes on unprefixed output"

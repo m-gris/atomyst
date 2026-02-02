@@ -21,9 +21,16 @@ test_fixture() {
     fi
 
     # Read extra options from options file if present
-    local extra_opts=""
+    # Default to --no-prefix-kind for backwards compatibility unless overridden
+    local extra_opts="--no-prefix-kind"
     if [[ -f "$fixture/options" ]]; then
-        extra_opts=$(cat "$fixture/options")
+        local file_opts
+        file_opts=$(cat "$fixture/options" | tr -d '[:space:]')
+        if [[ -n "$file_opts" ]]; then
+            extra_opts=$(cat "$fixture/options")
+        else
+            extra_opts=""  # Empty options file = use defaults
+        fi
     fi
 
     # Run atomyst (always keep original for tests)
