@@ -34,7 +34,8 @@ val list_text : Types.definition list -> source_name:string -> organized:bool ->
 val list_json : Types.definition list -> source_name:string -> string
 (** [list_json definitions ~source_name] renders a definition list as JSON. *)
 
-val manifest : format:string -> source_name:string -> definitions:Types.definition list -> string * string
-(** [manifest ~format ~source_name ~definitions] renders a manifest file
+val manifest : format:string -> source_name:string -> prefix_kind:bool -> definitions:Types.definition list -> string * string
+(** [manifest ~format ~source_name ~prefix_kind ~definitions] renders a manifest file
     preserving the original definition order. Returns (content, filename).
-    Format can be "yaml", "json", or "md". *)
+    Format can be "yaml", "json", or "md".
+    When [prefix_kind] is true, filenames include kind prefix (e.g., class_user.py). *)

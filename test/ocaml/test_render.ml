@@ -103,7 +103,7 @@ let test_manifest_yaml () =
     { name = "Foo"; kind = Class; start_line = 1; end_line = 5 };
     { name = "bar"; kind = Function; start_line = 7; end_line = 10 };
   ] in
-  let (content, filename) = Render.manifest ~format:"yaml" ~source_name:"test.py" ~definitions in
+  let (content, filename) = Render.manifest ~format:"yaml" ~source_name:"test.py" ~prefix_kind:false ~definitions in
   Alcotest.(check string) "filename" "MANIFEST.yaml" filename;
   Alcotest.(check bool) "contains source"
     true (let _ = Str.search_forward (Str.regexp "source: test.py") content 0 in true);
@@ -117,7 +117,7 @@ let test_manifest_json () =
   let definitions = [
     { name = "Foo"; kind = Class; start_line = 1; end_line = 5 };
   ] in
-  let (content, filename) = Render.manifest ~format:"json" ~source_name:"test.py" ~definitions in
+  let (content, filename) = Render.manifest ~format:"json" ~source_name:"test.py" ~prefix_kind:false ~definitions in
   Alcotest.(check string) "filename" "MANIFEST.json" filename;
   let json = Yojson.Basic.from_string content in
   let source = Yojson.Basic.Util.(json |> member "source" |> to_string) in
@@ -128,12 +128,24 @@ let test_manifest_md () =
   let definitions = [
     { name = "Foo"; kind = Class; start_line = 1; end_line = 5 };
   ] in
-  let (content, filename) = Render.manifest ~format:"md" ~source_name:"test.py" ~definitions in
+  let (content, filename) = Render.manifest ~format:"md" ~source_name:"test.py" ~prefix_kind:false ~definitions in
   Alcotest.(check string) "filename" "MANIFEST.md" filename;
   Alcotest.(check bool) "contains header"
     true (let _ = Str.search_forward (Str.regexp "# Atomyst Manifest") content 0 in true);
   Alcotest.(check bool) "contains table"
     true (let _ = Str.search_forward (Str.regexp "| File |") content 0 in true)
+
+(** Test manifest with prefix_kind=true *)
+let test_manifest_prefixed () =
+  let definitions = [
+    { name = "Foo"; kind = Class; start_line = 1; end_line = 5 };
+    { name = "bar"; kind = Function; start_line = 7; end_line = 10 };
+  ] in
+  let (content, _) = Render.manifest ~format:"yaml" ~source_name:"test.py" ~prefix_kind:true ~definitions in
+  Alcotest.(check bool) "contains class_foo.py"
+    true (let _ = Str.search_forward (Str.regexp "file: class_foo.py") content 0 in true);
+  Alcotest.(check bool) "contains def_bar.py"
+    true (let _ = Str.search_forward (Str.regexp "file: def_bar.py") content 0 in true)
 
 let () =
   Alcotest.run "render"
@@ -149,5 +161,6 @@ let () =
         [ Alcotest.test_case "yaml" `Quick test_manifest_yaml;
           Alcotest.test_case "json" `Quick test_manifest_json;
           Alcotest.test_case "md" `Quick test_manifest_md;
+          Alcotest.test_case "prefixed" `Quick test_manifest_prefixed;
         ] )
     ]
