@@ -431,6 +431,9 @@ let fix_consumer_imports ~atomized_file ~defined_names ~reexports =
         (* Skip the atomized file itself *)
         if file_path = atomized_file then
           process_files rest
+        else if not (Sys.file_exists file_path) then
+          (* Skip files that are tracked but deleted from disk *)
+          process_files rest
         else begin
           let ic = open_in file_path in
           let source = really_input_string ic (in_channel_length ic) in
