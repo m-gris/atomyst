@@ -1,3 +1,4 @@
+from typing import Dict
 
 from ._constants import SQL_TYPE_MAPPING, DEFAULT_LIMIT
 

@@ -98,7 +98,7 @@ let format_timestamp () =
 
 (** Build __init__.py content for a list of definitions.
     Preserves original module docstring if provided, adds atomization metadata. *)
-let build_init_file ~source_name ~docstring definitions =
+let build_init_file ~source_name ~docstring ~prefix_kind definitions =
   let buf = Buffer.create 512 in
   let timestamp = format_timestamp () in
   let metadata = format_metadata ~source_name ~timestamp in
@@ -137,7 +137,7 @@ let build_init_file ~source_name ~docstring definitions =
   Buffer.add_string buf "\n\n";
   (* Imports *)
   List.iter (fun (d : Types.definition) ->
-    let stem = Snake_case.to_snake_case d.name in
+    let stem = Filename.remove_extension (Prefix.generate_filename ~prefix_kind d) in
     Buffer.add_string buf (Printf.sprintf "from .%s import %s\n" stem d.name)
   ) definitions;
   (* __all__ *)
@@ -222,7 +222,7 @@ let detect_constant_references source definitions =
     ) definitions
 
 (** Plan atomization of a source file. Returns (plan, skipped_docstring, skipped_pragmas, potential_reexports, constant_refs) *)
-let plan_atomization source source_name ~keep_pragmas =
+let plan_atomization source source_name ~keep_pragmas ~prefix_kind =
   let lines =
     let parts = String.split_on_char '\n' source in
     let parts =
@@ -293,11 +293,11 @@ let plan_atomization source source_name ~keep_pragmas =
         if const_import = "" then base else base ^ const_import
       in
       let content = imports_section ^ "\n\n" ^ trimmed in
-      let filename = Snake_case.to_snake_case defn.name ^ ".py" in
+      let filename = Prefix.generate_filename ~prefix_kind defn in
       { Types.relative_path = filename; content }
     ) definitions
   in
-  let init_file = build_init_file ~source_name ~docstring:import_result.docstring definitions in
+  let init_file = build_init_file ~source_name ~docstring:import_result.docstring ~prefix_kind definitions in
   let constants_file = build_constants_file ~import_block ~constants ~definitions in
   let constant_refs = detect_constant_references source definitions in
   let all_output_files =
@@ -346,14 +346,14 @@ let build_warnings skipped_docstring skipped_pragmas potential_reexports constan
   List.rev warnings
 
 (** Run atomization *)
-let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt preserve_reexports keep_original =
+let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt preserve_reexports keep_original prefix_kind =
   if not (Sys.file_exists source_path) then begin
     print_endline (Render.error (Printf.sprintf "%s does not exist" source_path));
     1
   end else begin
     let source = read_file source_path in
     let source_name = Filename.basename source_path in
-    let (plan, skipped_docstring, skipped_pragmas, potential_reexports, constant_refs) = plan_atomization source source_name ~keep_pragmas in
+    let (plan, skipped_docstring, skipped_pragmas, potential_reexports, constant_refs) = plan_atomization source source_name ~keep_pragmas ~prefix_kind in
 
     if plan.definitions = [] then begin
       print_endline (Printf.sprintf "No definitions found in %s" source_path);
@@ -523,11 +523,11 @@ let run_list source_path format_opt organized =
   end
 
 (** Main entry point *)
-let main source_path output_dir dry_run format_opt extract_name keep_pragmas list_mode organized manifest_opt preserve_reexports keep_original =
+let main source_path output_dir dry_run format_opt extract_name keep_pragmas list_mode organized manifest_opt preserve_reexports keep_original prefix_kind =
   match list_mode, extract_name with
   | true, _ -> run_list source_path format_opt organized
   | false, Some name -> run_extract source_path name output_dir dry_run format_opt keep_pragmas
-  | false, None -> run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt preserve_reexports keep_original
+  | false, None -> run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_opt preserve_reexports keep_original prefix_kind
 
 (* Cmdliner terms *)
 
@@ -575,11 +575,69 @@ let keep_original_arg =
   let doc = "Keep original file after atomization. By default, the original is removed if it's git-tracked with no uncommitted changes." in
   Arg.(value & flag & info ["keep-original"] ~doc)
 
+let prefix_kind_arg =
+  let doc = "Prefix filenames with definition kind (e.g., class_user.py, def_calculate.py)" in
+  Arg.(value & flag & info ["prefix-kind"] ~doc)
+
+(* ============================================================================
+   Lint subcommand
+   ============================================================================ *)
+
+(** Read file contents, return None on error *)
+let read_file_opt path =
+  try Some (read_file path)
+  with _ -> None
+
+(** Run lint on a directory *)
+let run_lint dir_path =
+  if not (Sys.file_exists dir_path) then begin
+    print_endline (Render.error (Printf.sprintf "%s does not exist" dir_path));
+    1
+  end else if not (Sys.is_directory dir_path) then begin
+    print_endline (Render.error (Printf.sprintf "%s is not a directory" dir_path));
+    1
+  end else
+    match Lint.lint_directory ~dir:dir_path ~read_file:read_file_opt with
+    | Lint.AllClean count ->
+      print_endline (Printf.sprintf "✓ All %d files OK" count);
+      0
+    | Lint.Issues issues ->
+      List.iter (fun (issue : Lint.lint_issue) ->
+        let expected = String.concat "|" (List.map Render.kind_to_string issue.expected_kinds) in
+        let actual = Render.kind_to_string issue.actual_kind in
+        print_endline (Printf.sprintf "%s:%d: expected %s, found %s (%s)"
+          issue.file_path issue.line expected actual issue.definition_name)
+      ) issues;
+      print_endline (Printf.sprintf "\n✗ %d issue(s) found" (List.length issues));
+      1
+    | Lint.Error msg ->
+      print_endline (Render.error msg);
+      1
+
+let lint_dir_arg =
+  let doc = "Directory to lint (must be an atomized directory)" in
+  Arg.(required & pos 0 (some string) None & info [] ~docv:"DIR" ~doc)
+
+let lint_cmd =
+  let doc = "Check that filenames match definition kinds (use after --prefix-kind)" in
+  let info = Cmd.info "lint" ~doc in
+  let term = Term.(const run_lint $ lint_dir_arg) in
+  Cmd.v info term
+
+(* ============================================================================
+   Main command group
+   ============================================================================ *)
+
+let atomize_cmd =
+  let doc = "Atomize a Python source file" in
+  let info = Cmd.info "atomize" ~doc in
+  let term = Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg $ preserve_reexports_arg $ keep_original_arg $ prefix_kind_arg) in
+  Cmd.v info term
+
 let cmd =
   let doc = "Atomize Python source files into one-definition-per-file structure" in
   let info = Cmd.info "atomyst" ~version ~doc in
-  let term = Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg $ preserve_reexports_arg $ keep_original_arg) in
-  Cmd.v info term
+  Cmd.group info ~default:(Term.(const main $ source_arg $ output_arg $ dry_run_arg $ format_arg $ extract_arg $ keep_pragmas_arg $ list_arg $ organized_arg $ manifest_arg $ preserve_reexports_arg $ keep_original_arg $ prefix_kind_arg)) [atomize_cmd; lint_cmd]
 
 let () =
   match Cmd.eval_value cmd with

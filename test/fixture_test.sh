@@ -20,16 +20,25 @@ test_fixture() {
         return
     fi
 
-    # Run atomyst
-    eval $(opam env) && dune exec atomyst -- "$fixture/input.py" -o "$output_dir" 2>/dev/null
+    # Read extra options from options file if present
+    local extra_opts=""
+    if [[ -f "$fixture/options" ]]; then
+        extra_opts=$(cat "$fixture/options")
+    fi
 
-    # Compare output to expected
-    if diff -rq "$expected_dir" "$output_dir" >/dev/null 2>&1; then
+    # Run atomyst (always keep original for tests)
+    eval $(opam env) && dune exec atomyst -- atomize "$fixture/input.py" -o "$output_dir" --keep-original $extra_opts 2>/dev/null
+
+    # Compare output to expected (ignoring timestamps)
+    # Use diff with -I to ignore timestamp lines in __init__.py
+    local diff_output
+    diff_output=$(diff -r -I '^Source:.*|.*T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z' "$expected_dir" "$output_dir" 2>&1 || true)
+    if [[ -z "$diff_output" ]]; then
         echo "✓ $name"
         PASS=$((PASS + 1))
     else
         echo "✗ $name"
-        diff -r "$expected_dir" "$output_dir" 2>&1 | head -10 | sed 's/^/  /'
+        echo "$diff_output" | head -10 | sed 's/^/  /'
         FAIL=$((FAIL + 1))
     fi
 }

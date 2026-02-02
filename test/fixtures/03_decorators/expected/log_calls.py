@@ -1,6 +1,8 @@
 import functools
-from typing import Callable
+from dataclasses import dataclass, field
+from typing import Callable, TypeVar
 
+from ._constants import T
 
 
 def log_calls(func: Callable[..., T]) -> Callable[..., T]:

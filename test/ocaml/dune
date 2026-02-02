@@ -33,3 +33,11 @@
 (test
  (name test_git_utils)
  (libraries atomyst alcotest unix))
+
+(test
+ (name test_prefix)
+ (libraries atomyst alcotest))
+
+(test
+ (name test_lint)
+ (libraries atomyst alcotest))

@@ -10,12 +10,20 @@ default: build test
 build:
     eval $(opam env) && dune build
 
-# Run all tests (OCaml + tree-sitter queries)
-test: test-ocaml test-queries
+# Run all tests (OCaml + fixtures + tree-sitter queries + integration)
+test: test-ocaml test-fixtures test-queries test-integration
+
+# Run prefix+lint integration test
+test-integration:
+    ./test/prefix_lint_test.sh
 
 # Run OCaml tests
 test-ocaml:
     eval $(opam env) && dune test
+
+# Run OCaml tests with verbose output
+test-ocaml-verbose:
+    eval $(opam env) && dune runtest --force
 
 # Run tree-sitter query tests
 test-queries:
@@ -42,8 +50,13 @@ ts-expected test_dir:
 
 # Run OCaml atomyst CLI with arguments
 # Usage: just run test/fixtures/01_simple_class/input.py --dry-run
+# Usage: just run lint /path/to/atomized/dir
 run *args:
     eval $(opam env) && dune exec atomyst -- {{args}}
+
+# Atomize a file (shorthand for: just run atomize ...)
+atomize *args:
+    eval $(opam env) && dune exec atomyst -- atomize {{args}}
 
 # Run fixture tests (compare output to expected/)
 test-fixtures:

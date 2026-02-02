@@ -6,6 +6,10 @@
 
 open Types
 
+val kind_to_string : definition_kind -> string
+(** [kind_to_string kind] converts a definition kind to display string.
+    Class -> "class", Function -> "function", etc. *)
+
 val plan_text : atomize_plan -> string
 (** [plan_text plan] renders the atomization plan as human-readable text.
     Shows definitions found and files that will be created. *)

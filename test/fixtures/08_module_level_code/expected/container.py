@@ -1,5 +1,6 @@
-from typing import Generic
+from typing import TypeVar, Generic
 
+from ._constants import T
 
 
 class Container(Generic[T]):
