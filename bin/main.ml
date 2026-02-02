@@ -8,6 +8,33 @@ open Atomyst
 
 let version = "%%VERSION_NUM%%"
 
+(* ============================================================================
+   Atomization Metadata Configuration
+   ============================================================================
+   These values are embedded in generated __init__.py files.
+   Edit here to customize the output.
+*)
+
+let tool_name = "atomyst"
+let tool_url = "https://github.com/m-gris/atomyst"
+
+(** The micro-manifesto: why atomic file structure matters *)
+let manifesto = {|Large files are hostile to AI agents—they read everything to edit anything.
+One definition per file. Atomic edits. No collisions.
+`tree src/` reveals the architecture at a glance.|}
+
+(** Format the metadata block for __init__.py docstrings.
+    @param source_name Original source file name
+    @param timestamp ISO 8601 timestamp
+    @return Formatted metadata string *)
+let format_metadata ~source_name ~timestamp =
+  Printf.sprintf {|---
+%s <%s>
+Source: %s | %s
+
+%s|}
+    tool_name tool_url source_name timestamp manifesto
+
 (** Read file contents *)
 let read_file path =
   let ic = open_in path in
@@ -73,10 +100,12 @@ let format_timestamp () =
     Preserves original module docstring if provided, adds atomization metadata. *)
 let build_init_file ~source_name ~docstring definitions =
   let buf = Buffer.create 512 in
+  let timestamp = format_timestamp () in
+  let metadata = format_metadata ~source_name ~timestamp in
   (* Docstring: use original if available, otherwise generate *)
   (match docstring with
    | Some ds ->
-     (* Original docstring - add atomization note at the end *)
+     (* Original docstring - add atomization metadata at the end *)
      let ds_trimmed = String.trim ds in
      let has_triple_quotes =
        String.length ds_trimmed >= 6 &&
@@ -92,18 +121,19 @@ let build_init_file ~source_name ~docstring definitions =
        Buffer.add_string buf delim;
        Buffer.add_string buf inner_trimmed;
        if inner_trimmed <> "" then Buffer.add_string buf "\n\n";
-       Buffer.add_string buf (Printf.sprintf "Atomized from %s by atomyst on %s.\n"
-         source_name (format_timestamp ()));
+       Buffer.add_string buf metadata;
+       Buffer.add_string buf "\n";
        Buffer.add_string buf delim
      end else begin
        (* Malformed docstring, just use as-is *)
        Buffer.add_string buf ds_trimmed
      end
    | None ->
-     (* No original docstring - generate one *)
-     Buffer.add_string buf (Printf.sprintf
-       {|"""Atomized from %s by atomyst on %s."""|}
-       source_name (format_timestamp ())));
+     (* No original docstring - generate metadata-only docstring *)
+     Buffer.add_string buf {|"""|};
+     Buffer.add_string buf metadata;
+     Buffer.add_string buf "\n";
+     Buffer.add_string buf {|"""|});
   Buffer.add_string buf "\n\n";
   (* Imports *)
   List.iter (fun (d : Types.definition) ->

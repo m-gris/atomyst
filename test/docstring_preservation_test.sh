@@ -67,10 +67,42 @@ test_atomization_metadata() {
 
     run_atomyst "$dir/test.py" -o "$dir/output" --keep-original >/dev/null 2>&1
 
-    if grep -q "Atomized from test.py by atomyst" "$dir/output/__init__.py"; then
+    if grep -q "atomyst" "$dir/output/__init__.py" && \
+       grep -q "Source: test.py" "$dir/output/__init__.py"; then
         pass "atomization metadata present"
     else
         fail "atomization metadata present" "metadata not found in __init__.py"
+    fi
+}
+
+# Test 3b: Manifesto is included
+test_manifesto_present() {
+    local dir="$TMPDIR/test3b"
+    mkdir -p "$dir"
+    printf '"""Original docstring."""\n\nclass Foo:\n    pass\n' > "$dir/test.py"
+
+    run_atomyst "$dir/test.py" -o "$dir/output" --keep-original >/dev/null 2>&1
+
+    if grep -q "One definition per file" "$dir/output/__init__.py" && \
+       grep -q "tree src" "$dir/output/__init__.py"; then
+        pass "manifesto present in __init__.py"
+    else
+        fail "manifesto present in __init__.py" "manifesto text not found"
+    fi
+}
+
+# Test 3c: Tool URL is included
+test_tool_url_present() {
+    local dir="$TMPDIR/test3c"
+    mkdir -p "$dir"
+    printf '"""Original docstring."""\n\nclass Foo:\n    pass\n' > "$dir/test.py"
+
+    run_atomyst "$dir/test.py" -o "$dir/output" --keep-original >/dev/null 2>&1
+
+    if grep -q "github.com/m-gris/atomyst" "$dir/output/__init__.py"; then
+        pass "tool URL present"
+    else
+        fail "tool URL present" "URL not found in __init__.py"
     fi
 }
 
@@ -82,7 +114,8 @@ test_no_docstring_generates_metadata() {
 
     run_atomyst "$dir/test.py" -o "$dir/output" --keep-original >/dev/null 2>&1
 
-    if grep -q "Atomized from test.py by atomyst" "$dir/output/__init__.py"; then
+    if grep -q "Source: test.py" "$dir/output/__init__.py" && \
+       grep -q "One definition per file" "$dir/output/__init__.py"; then
         pass "no docstring -> metadata docstring generated"
     else
         fail "no docstring -> metadata docstring generated" "generated docstring not found"
@@ -125,6 +158,8 @@ echo "=== Docstring Preservation Tests ==="
 test_single_line_docstring
 test_multiline_docstring
 test_atomization_metadata
+test_manifesto_present
+test_tool_url_present
 test_no_docstring_generates_metadata
 test_imports_present
 test_all_present
