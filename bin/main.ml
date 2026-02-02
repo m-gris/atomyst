@@ -277,9 +277,14 @@ let plan_atomization source source_name ~keep_pragmas ~prefix_kind =
       (* Adjust relative imports inside definition body (depth_delta=1 for extraction to subdir) *)
       let adjusted_defn_lines = Extract.adjust_relative_imports ~depth_delta:1 defn_lines in
       let defn_content = String.concat "" adjusted_defn_lines in
-      (* Find sibling references and generate imports *)
+      (* Find sibling references and generate imports with kind prefix *)
       let sibling_names = Extract.find_sibling_references ~all_defns:definitions ~target_defn:defn ~defn_content in
-      let sibling_import_lines = Extract.generate_sibling_imports sibling_names in
+      let sibling_import_lines = List.filter_map (fun name ->
+        List.find_opt (fun (d : Types.definition) -> d.name = name) definitions
+        |> Option.map (fun d ->
+          let stem = Filename.remove_extension (Prefix.generate_filename ~prefix_kind d) in
+          Printf.sprintf "from .%s import %s\n" stem d.name)
+      ) sibling_names in
       let sibling_imports = String.concat "" sibling_import_lines in
       (* Find constant references and generate imports *)
       let const_refs = Extract.find_constant_references ~constant_names ~defn_content in

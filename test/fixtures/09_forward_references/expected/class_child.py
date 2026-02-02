@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-from .parent import Parent
+from .class_parent import Parent
 
 
 @dataclass
