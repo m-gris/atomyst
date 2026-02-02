@@ -1,4 +1,4 @@
-"""Module docstring that should NOT be copied.
+"""Module with logger binding that depends on __name__.
 
 ---
 atomyst <https://github.com/m-gris/atomyst>
@@ -9,8 +9,10 @@ One definition per file. Atomic edits. No collisions.
 `tree src/` reveals the architecture at a glance.
 """
 
-from .def_main import main
+from .class_query_handler import QueryHandler
+from .class_response_builder import ResponseBuilder
 
 __all__ = [
-    "main",
+    "QueryHandler",
+    "ResponseBuilder",
 ]

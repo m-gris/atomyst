@@ -3,12 +3,12 @@ source: input.py
 extracted: 2026-02-02
 
 definitions:
-  - file: widget.py
+  - file: class_widget.py
     name: Widget
     kind: class
     lines: 12-16
 
-  - file: process.py
+  - file: def_process.py
     name: process
     kind: function
     lines: 19-21

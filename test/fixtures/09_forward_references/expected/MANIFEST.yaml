@@ -3,22 +3,22 @@ source: input.py
 extracted: 2026-02-02
 
 definitions:
-  - file: node.py
+  - file: class_node.py
     name: Node
     kind: class
     lines: 8-13
 
-  - file: tree.py
+  - file: class_tree.py
     name: Tree
     kind: class
     lines: 16-22
 
-  - file: parent.py
+  - file: class_parent.py
     name: Parent
     kind: class
     lines: 25-30
 
-  - file: child.py
+  - file: class_child.py
     name: Child
     kind: class
     lines: 33-38

@@ -3,52 +3,52 @@ source: input.py
 extracted: 2026-02-02
 
 definitions:
-  - file: simple_class.py
+  - file: class_simple_class.py
     name: SimpleClass
     kind: class
     lines: 4-5
 
-  - file: http_server.py
+  - file: class_http_server.py
     name: HTTPServer
     kind: class
     lines: 8-11
 
-  - file: xml_parser.py
+  - file: class_xml_parser.py
     name: XMLParser
     kind: class
     lines: 14-17
 
-  - file: my_http_client.py
+  - file: class_my_http_client.py
     name: MyHTTPClient
     kind: class
     lines: 20-23
 
-  - file: aws_lambda_handler.py
+  - file: class_aws_lambda_handler.py
     name: AWSLambdaHandler
     kind: class
     lines: 26-29
 
-  - file: a.py
+  - file: class_a.py
     name: A
     kind: class
     lines: 32-35
 
-  - file: ab.py
+  - file: class_ab.py
     name: AB
     kind: class
     lines: 38-41
 
-  - file: abc_def.py
+  - file: class_abc_def.py
     name: ABCDef
     kind: class
     lines: 44-47
 
-  - file: get_http_response.py
+  - file: def_get_http_response.py
     name: getHTTPResponse
     kind: function
     lines: 50-52
 
-  - file: simple_function.py
+  - file: def_simple_function.py
     name: simple_function
     kind: function
     lines: 55-57

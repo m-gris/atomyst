@@ -3,12 +3,12 @@ source: input.py
 extracted: 2026-02-02
 
 definitions:
-  - file: container.py
+  - file: class_container.py
     name: Container
     kind: class
     lines: 17-21
 
-  - file: process_value.py
+  - file: def_process_value.py
     name: process_value
     kind: function
     lines: 24-26

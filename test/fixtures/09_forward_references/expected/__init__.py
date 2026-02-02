@@ -2,17 +2,17 @@
 
 ---
 atomyst <https://github.com/m-gris/atomyst>
-Source: input.py | 2026-02-02T07:12:26Z
+Source: input.py | 2026-02-02T12:42:05Z
 
 Large files are hostile to AI agents—they read everything to edit anything.
 One definition per file. Atomic edits. No collisions.
 `tree src/` reveals the architecture at a glance.
 """
 
-from .node import Node
-from .tree import Tree
-from .parent import Parent
-from .child import Child
+from .class_node import Node
+from .class_tree import Tree
+from .class_parent import Parent
+from .class_child import Child
 
 __all__ = [
     "Node",

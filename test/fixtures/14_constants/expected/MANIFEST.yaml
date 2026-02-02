@@ -3,12 +3,12 @@ source: input.py
 extracted: 2026-02-02
 
 definitions:
-  - file: query.py
+  - file: class_query.py
     name: Query
     kind: class
     lines: 10-17
 
-  - file: response.py
+  - file: class_response.py
     name: Response
     kind: class
     lines: 20-24

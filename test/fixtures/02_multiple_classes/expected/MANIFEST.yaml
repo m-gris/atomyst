@@ -3,17 +3,17 @@ source: input.py
 extracted: 2026-02-02
 
 definitions:
-  - file: point.py
+  - file: class_point.py
     name: Point
     kind: class
     lines: 7-12
 
-  - file: rectangle.py
+  - file: class_rectangle.py
     name: Rectangle
     kind: class
     lines: 15-28
 
-  - file: circle.py
+  - file: class_circle.py
     name: Circle
     kind: class
     lines: 31-37

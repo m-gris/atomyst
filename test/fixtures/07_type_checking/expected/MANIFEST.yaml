@@ -3,12 +3,12 @@ source: input.py
 extracted: 2026-02-02
 
 definitions:
-  - file: light_weight.py
+  - file: class_light_weight.py
     name: LightWeight
     kind: class
     lines: 13-18
 
-  - file: process.py
+  - file: def_process.py
     name: process
     kind: function
     lines: 21-23

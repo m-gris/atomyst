@@ -3,17 +3,17 @@ source: input.py
 extracted: 2026-02-02
 
 definitions:
-  - file: log_calls.py
+  - file: def_log_calls.py
     name: log_calls
     kind: function
     lines: 10-18
 
-  - file: priority.py
+  - file: class_priority.py
     name: Priority
     kind: class
     lines: 21-30
 
-  - file: expensive_computation.py
+  - file: def_expensive_computation.py
     name: expensive_computation
     kind: function
     lines: 33-37
