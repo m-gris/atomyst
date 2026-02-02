@@ -3,12 +3,12 @@ source: input.py
 extracted: 2026-02-02
 
 definitions:
-  - file: user_profile.py
+  - file: class_user_profile.py
     name: UserProfile
     kind: class
     lines: 7-11
 
-  - file: calculate_total.py
+  - file: def_calculate_total.py
     name: calculate_total
     kind: function
     lines: 14-16
