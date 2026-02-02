@@ -2,21 +2,49 @@
 
 Atomize Python source files into one-definition-per-file structure.
 
-**The Problem:** Large source files with multiple definitions are hostile to LLM coding agents. Agents must read entire files to edit one definition, context windows fill with irrelevant code, and parallel agents conflict on the same file.
+## The Problem
 
-**The Solution:** One definition per file. Directories are concepts. `__init__.py` is the public interface.
+Traditional Python idioms favor rich modules with multiple related definitions per file. This made sense when humans read code top-to-bottom and navigation meant `grep` and `less`.
+
+The LLM era introduces new constraints:
+
+- **Context windows are finite** — every irrelevant line degrades attention
+- **Agents must read before editing** — large files mean slow iteration
+- **Parallel agents need isolation** — file-level conflicts require coordination
+
+Large files are hostile to AI agents. They read everything to edit anything.
+
+## The Solution
+
+> **Files are definitions. Directories are concepts. `__init__.py` is the interface.**
+
+One definition per file. The tree *is* the architecture:
+
+```bash
+$ tree models/
+models/
+├── __init__.py     # Public API: from models import User, Order
+├── user.py         # 25 lines — one class
+└── order.py        # 30 lines — one class
+```
+
+The pre-LLM idiom of "rich modules" optimized for human sequential reading. This structure optimizes for **random access by context-limited agents**.
 
 ## Installation
 
 ```bash
 # Clone and build
-git clone https://github.com/yourorg/atomyst
+git clone https://github.com/m-gris/atomyst
 cd atomyst
 opam install . --deps-only
 dune build
 
+# Install (optional)
+dune install
+
 # Run
-dune exec atomyst -- --help
+atomyst --help
+# or: dune exec atomyst -- --help
 ```
 
 ## Usage
@@ -76,10 +104,11 @@ atomyst mymodule.py --manifest md
 - **Automatic import cleanup** - Unused imports are removed via `ruff` (silent if not installed)
 - **Relative import adjustment** - `from .foo import X` becomes `from ..foo import X` when extracting to subdirectory
 - **Sibling import generation** - Cross-references between definitions get automatic `from .sibling import Name` imports
-- **Module docstring handling** - Skipped by default (with warning), since it describes the original file
+- **Module docstring preservation** - Original module docstring is embedded in `__init__.py` with atomization metadata
 - **Pragma handling** - File-level pragmas (`# mypy:`, `# type:`, etc.) skipped by default; use `--keep-pragmas` to include
 - **Shebang preservation** - `#!/usr/bin/env python3` lines are kept
-- **`__init__.py` generation** - Auto-generated with re-exports and `__all__`
+- **`__init__.py` generation** - Auto-generated with re-exports, `__all__`, and provenance metadata
+- **Safe original file removal** - Original is removed if git-tracked and clean; use `--keep-original` to preserve
 - **TYPE_CHECKING blocks** - Preserved in import section
 - **Manifest generation** - `--manifest yaml|json|md` creates a MANIFEST file preserving original definition order
 
@@ -109,36 +138,65 @@ Running `atomyst models.py` creates:
 
 ```
 models/
-├── __init__.py     # from .user import User; from .order import Order
+├── __init__.py     # Docstring + metadata + re-exports
 ├── user.py         # User class with its imports
 └── order.py        # Order class with its imports
 ```
 
-With warnings:
+The generated `__init__.py`:
+
+```python
+"""Domain models for the application.
+
+---
+atomyst <https://github.com/m-gris/atomyst>
+Source: models.py | 2026-02-02T12:34:56Z
+
+Large files are hostile to AI agents—they read everything to edit anything.
+One definition per file. Atomic edits. No collisions.
+`tree src/` reveals the architecture at a glance.
+"""
+
+from .user import User
+from .order import Order
+
+__all__ = [
+    "User",
+    "Order",
+]
 ```
-⚠ Module docstring was NOT copied to extracted files.
-  Review the original and distribute manually if needed.
-⚠ Pragma comments (# mypy:, # type:, etc.) were skipped.
-  Use --keep-pragmas to include them.
-```
+
+The original `models.py` is removed (if git-tracked and clean). Use `--keep-original` to preserve it.
 
 ## Philosophy
 
-> **Files are definitions. Directories are concepts. Index files are interfaces.**
+> **Files are definitions. Directories are concepts. `__init__.py` is the interface.**
 
-| Element | Granularity |
-|---------|-------------|
-| Function | One file |
-| Class | One file |
-| Type/Struct | One file |
-| Constants | Grouped by affinity |
+| Element | Granularity | Rationale |
+|---------|-------------|-----------|
+| Function | One file | Atomic edit unit |
+| Class | One file | Atomic edit unit |
+| Dataclass/Type | One file | Atomic edit unit |
+| Constants/Enums | Grouped per concept | Inert data, no behavior to isolate |
 
 ### Why This Works
 
-1. **Context efficiency** — Read 20 lines, not 300
-2. **Atomic edits** — One concept, one file, one diff
-3. **Structure as documentation** — `tree src/` reveals the architecture
-4. **Parallel safety** — Multiple agents on different files cannot conflict
+1. **Context efficiency** — An agent editing `normalize.py` reads 20 lines, not 300. The entire file *is* the relevant part.
+2. **Atomic edits** — One concept, one file, one diff. Git history per file traces one thing's evolution.
+3. **Structure as documentation** — `tree src/` reveals the architecture. Every `mkdir` is an architectural decision.
+4. **Parallel safety** — Multiple agents on different files cannot conflict. File-level isolation provides natural coordination.
+5. **Session continuity** — New conversation reads one file to catch up, not an entire module.
+
+### Comparison with Traditional Approach
+
+| Aspect | Rich modules (traditional) | Atomic (one definition per file) |
+|--------|---------------------------|----------------------------------|
+| File size | 100-500 lines | 20-80 lines |
+| Concept boundary | Within file | Within directory |
+| Navigation | Scroll/search within file | Tree navigation |
+| LLM context cost | High (read whole file) | Low (read one definition) |
+| Parallel edits | Conflict-prone | Conflict-free |
+| Git archaeology | Mixed history per file | Clean history per definition |
 
 See [ROADMAP.md](./ROADMAP.md) for implementation details.
 
