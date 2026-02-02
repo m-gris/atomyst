@@ -161,7 +161,7 @@ let detect_potential_reexports import_lines definitions =
 (** Build _constants.py content from constants and import block.
     Pure function: assembles the file content.
     Detects references to sibling definitions and generates imports for them. *)
-let build_constants_file ~import_block ~constants ~definitions =
+let build_constants_file ~import_block ~constants ~definitions ~prefix_kind =
   if constants = [] then None
   else
     (* Combine all constant source texts to find sibling references *)
@@ -170,7 +170,13 @@ let build_constants_file ~import_block ~constants ~definitions =
     let defn_names = List.map (fun (d : Types.definition) -> d.name) definitions in
     let referenced_defns = Extract.find_constant_references
       ~constant_names:defn_names ~defn_content:all_constants_text in
-    let sibling_imports = Extract.generate_sibling_imports referenced_defns in
+    (* Generate sibling imports with kind prefix when enabled *)
+    let sibling_imports = List.filter_map (fun name ->
+      List.find_opt (fun (d : Types.definition) -> d.name = name) definitions
+      |> Option.map (fun d ->
+        let stem = Filename.remove_extension (Prefix.generate_filename ~prefix_kind d) in
+        Printf.sprintf "from .%s import %s\n" stem d.name)
+    ) referenced_defns in
 
     let buf = Buffer.create 512 in
     Buffer.add_string buf {|"""Module-level constants extracted by atomyst."""|};
@@ -318,7 +324,7 @@ let plan_atomization source source_name ~keep_pragmas ~prefix_kind =
     ) definitions
   in
   let init_file = build_init_file ~source_name ~docstring:import_result.docstring ~prefix_kind definitions in
-  let constants_file = build_constants_file ~import_block ~constants ~definitions in
+  let constants_file = build_constants_file ~import_block ~constants ~definitions ~prefix_kind in
   let constant_refs = detect_constant_references source definitions in
   let all_output_files =
     let base = output_files @ [init_file] in
