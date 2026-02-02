@@ -49,8 +49,24 @@ type module_constant = {
 }
 
 (** Extract module-level constant definitions from Python source.
-    Returns empty list on parse error (non-fatal). *)
+    Returns empty list on parse error (non-fatal).
+    Excludes logger bindings (see extract_logger_bindings). *)
 val extract_constants : string -> module_constant list
+
+(** A logger binding: logger = logging.getLogger(__name__).
+    These depend on __name__ and must be replicated per-file,
+    not extracted to _constants.py. *)
+type logger_binding = {
+  var_name : string;    (** The variable name (e.g., "logger", "log") *)
+  loc : location;       (** Location in source *)
+  source_text : string; (** Raw source text of the assignment *)
+}
+
+(** Extract logger bindings from Python source.
+    These are assignments like: logger = logging.getLogger(__name__)
+    They depend on __name__ and must be replicated in each extracted file
+    that uses the logger variable. *)
+val extract_logger_bindings : string -> logger_binding list
 
 (** A top-level definition extracted from source *)
 type extracted_definition = {

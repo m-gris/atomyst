@@ -264,6 +264,61 @@ CONST = 42|} in
   let c = List.hd constants in
   Alcotest.(check int) "line 1 (0-indexed)" 1 c.loc.start_line
 
+(** === Tests for extract_logger_bindings === *)
+
+(** Detects logger = logging.getLogger(__name__) *)
+let test_logger_binding_basic () =
+  let source = {|import logging
+logger = logging.getLogger(__name__)|} in
+  let bindings = Python_parser.extract_logger_bindings source in
+  Alcotest.(check int) "one binding" 1 (List.length bindings);
+  let lb = List.hd bindings in
+  Alcotest.(check string) "var_name" "logger" lb.var_name;
+  Alcotest.(check bool) "source contains getLogger" true
+    (String.length lb.source_text > 0 &&
+     String.sub lb.source_text 0 6 = "logger")
+
+(** Detects with different variable name *)
+let test_logger_binding_different_name () =
+  let source = {|import logging
+log = logging.getLogger(__name__)|} in
+  let bindings = Python_parser.extract_logger_bindings source in
+  Alcotest.(check int) "one binding" 1 (List.length bindings);
+  Alcotest.(check string) "var_name is log" "log" (List.hd bindings).var_name
+
+(** Constants should NOT include logger bindings *)
+let test_constants_exclude_logger () =
+  let source = {|import logging
+CONST = 42
+logger = logging.getLogger(__name__)
+OTHER = "value"|} in
+  let constants = Python_parser.extract_constants source in
+  let names = List.map (fun (c : Python_parser.module_constant) -> c.name) constants in
+  Alcotest.(check int) "two constants" 2 (List.length constants);
+  Alcotest.(check bool) "has CONST" true (List.mem "CONST" names);
+  Alcotest.(check bool) "has OTHER" true (List.mem "OTHER" names);
+  Alcotest.(check bool) "no logger" false (List.mem "logger" names)
+
+(** No logger bindings when pattern doesn't match *)
+let test_logger_binding_no_match () =
+  let source = {|import logging
+logger = logging.getLogger("explicit_name")
+CONST = 42|} in
+  let bindings = Python_parser.extract_logger_bindings source in
+  Alcotest.(check int) "no bindings" 0 (List.length bindings);
+  (* But it should still be a constant since it doesn't use __name__ *)
+  let constants = Python_parser.extract_constants source in
+  let names = List.map (fun (c : Python_parser.module_constant) -> c.name) constants in
+  Alcotest.(check bool) "logger is constant" true (List.mem "logger" names)
+
+(** Detects with alias like: import logging as log; x = log.getLogger(__name__) *)
+let test_logger_binding_aliased_module () =
+  let source = {|import logging as lg
+mylogger = lg.getLogger(__name__)|} in
+  let bindings = Python_parser.extract_logger_bindings source in
+  Alcotest.(check int) "one binding" 1 (List.length bindings);
+  Alcotest.(check string) "var_name" "mylogger" (List.hd bindings).var_name
+
 let () =
   Alcotest.run "python_parser"
     [ ( "import",
@@ -303,5 +358,12 @@ let () =
           Alcotest.test_case "skip_attribute" `Quick test_skip_attribute;
           Alcotest.test_case "skip_definitions" `Quick test_skip_definitions;
           Alcotest.test_case "location" `Quick test_constant_location;
+        ] );
+      ( "logger_bindings",
+        [ Alcotest.test_case "basic" `Quick test_logger_binding_basic;
+          Alcotest.test_case "different_name" `Quick test_logger_binding_different_name;
+          Alcotest.test_case "constants_exclude" `Quick test_constants_exclude_logger;
+          Alcotest.test_case "no_match" `Quick test_logger_binding_no_match;
+          Alcotest.test_case "aliased_module" `Quick test_logger_binding_aliased_module;
         ] );
     ]

@@ -245,6 +245,10 @@ let plan_atomization source source_name ~keep_pragmas ~prefix_kind =
   let constants = Python_parser.extract_constants source in
   let constant_names = List.map (fun (c : Python_parser.module_constant) -> c.name) constants in
 
+  (* Extract logger bindings - these depend on __name__ and must be replicated per-file *)
+  let logger_bindings = Python_parser.extract_logger_bindings source in
+  let logger_var_names = List.map (fun (lb : Python_parser.logger_binding) -> lb.var_name) logger_bindings in
+
   let output_files =
     List.map (fun (defn : Types.definition) ->
       let arr = Array.of_list lines in
@@ -277,6 +281,17 @@ let plan_atomization source source_name ~keep_pragmas ~prefix_kind =
         if const_refs = [] then ""
         else Printf.sprintf "from ._constants import %s\n" (String.concat ", " const_refs)
       in
+      (* Find logger references and generate per-file logger bindings *)
+      let logger_refs = Extract.find_constant_references ~constant_names:logger_var_names ~defn_content in
+      let logger_lines =
+        if logger_refs = [] then ""
+        else
+          let binding_texts = List.filter_map (fun var_name ->
+            List.find_opt (fun (lb : Python_parser.logger_binding) -> lb.var_name = var_name) logger_bindings
+            |> Option.map (fun (lb : Python_parser.logger_binding) -> lb.source_text)
+          ) logger_refs in
+          String.concat "" binding_texts
+      in
       let trimmed =
         let s = defn_content in
         let len = String.length s in
@@ -287,12 +302,17 @@ let plan_atomization source source_name ~keep_pragmas ~prefix_kind =
         in
         String.sub s (find_start 0) (len - find_start 0)
       in
-      (* Combine: original imports + sibling imports + constant imports + definition *)
+      (* Combine: original imports + sibling imports + constant imports + logger bindings + definition *)
       let imports_section =
         let base = if sibling_imports = "" then import_block else import_block ^ sibling_imports in
         if const_import = "" then base else base ^ const_import
       in
-      let content = imports_section ^ "\n\n" ^ trimmed in
+      (* Add logger bindings after imports (they need import logging to be present) *)
+      let pre_definition =
+        if logger_lines = "" then imports_section
+        else imports_section ^ "\n" ^ logger_lines
+      in
+      let content = pre_definition ^ "\n\n" ^ trimmed in
       let filename = Prefix.generate_filename ~prefix_kind defn in
       { Types.relative_path = filename; content }
     ) definitions
@@ -376,7 +396,7 @@ let run_atomize source_path output_dir dry_run format_opt keep_pragmas manifest_
         ) plan.output_files;
         (* Always generate manifest - essential for preserving original order *)
         let manifest_format = Option.value manifest_opt ~default:"yaml" in
-        let (content, filename) = Render.manifest ~format:manifest_format ~source_name ~definitions:plan.definitions in
+        let (content, filename) = Render.manifest ~format:manifest_format ~source_name ~prefix_kind ~definitions:plan.definitions in
         let path = Filename.concat resolved_output_dir filename in
         write_file path content;
         (* Clean up unused imports with ruff *)

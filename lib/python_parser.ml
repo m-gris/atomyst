@@ -100,11 +100,43 @@ type module_constant = {
   source_text : string;
 }
 
+(** Logger binding: assignments like logger = logging.getLogger(__name__).
+    These depend on __name__ and must be replicated per-file, not extracted to _constants.py. *)
+type logger_binding = {
+  var_name : string;
+  loc : location;
+  source_text : string;
+}
+
 (** Check if name is a dunder (double-underscore) name *)
 let is_dunder name =
   String.length name >= 4 &&
   String.sub name 0 2 = "__" &&
   String.sub name (String.length name - 2) 2 = "__"
+
+(** Check if an expression is a call to logging.getLogger(__name__).
+    This pattern depends on __name__ and must not be extracted to _constants.py. *)
+let is_logger_getname_call (expr : PyreAst.Concrete.Expression.t) : bool =
+  let open PyreAst.Concrete in
+  match expr with
+  | Expression.Call { func; args; _ } ->
+    (* Check if func is logging.getLogger or <alias>.getLogger *)
+    let is_getlogger_func =
+      match func with
+      | Expression.Attribute { value = Expression.Name _; attr; _ } ->
+        Identifier.to_string attr = "getLogger"
+      | _ -> false
+    in
+    (* Check if any argument is __name__ *)
+    let has_dunder_name_arg =
+      List.exists (fun arg ->
+        match arg with
+        | Expression.Name { id; _ } -> Identifier.to_string id = "__name__"
+        | _ -> false
+      ) args
+    in
+    is_getlogger_func && has_dunder_name_arg
+  | _ -> false
 
 (** Extract source text from location.
     Lines are 0-indexed in our location type. *)
@@ -115,30 +147,36 @@ let extract_source_text source_lines loc =
 
 (** Extract constant definitions from parsed module.
     Filters for: Assign with Name target, AnnAssign with Name target.
-    Excludes: dunder names, augmented assignments. *)
+    Excludes: dunder names, augmented assignments, logger patterns. *)
 let extract_constants_from_module source_lines (mod_ : PyreAst.Concrete.Module.t) : module_constant list =
   let open PyreAst.Concrete in
   let { Module.body; _ } = mod_ in
   List.filter_map (fun stmt ->
     match stmt with
     (* Simple assignment: NAME = value *)
-    | Statement.Assign { location; targets; _ } ->
+    | Statement.Assign { location; targets; value; _ } ->
       (* Only handle single Name target *)
       (match targets with
        | [Expression.Name { id; _ }] ->
          let name = Identifier.to_string id in
-         if is_dunder name then None
+         (* Exclude dunder names and logger patterns *)
+         if is_dunder name || is_logger_getname_call value then None
          else
            let loc = location_of_pyre location in
            let source_text = extract_source_text source_lines loc in
            Some { name; loc; source_text }
        | _ -> None)
     (* Annotated assignment: NAME: type = value or NAME: type *)
-    | Statement.AnnAssign { location; target; _ } ->
+    | Statement.AnnAssign { location; target; value; _ } ->
       (match target with
        | Expression.Name { id; _ } ->
          let name = Identifier.to_string id in
-         if is_dunder name then None
+         (* Exclude dunder names and logger patterns (if value present) *)
+         let is_logger = match value with
+           | Some v -> is_logger_getname_call v
+           | None -> false
+         in
+         if is_dunder name || is_logger then None
          else
            let loc = location_of_pyre location in
            let source_text = extract_source_text source_lines loc in
@@ -174,6 +212,44 @@ let extract_constants source : module_constant list =
       | Ok module_ ->
         let source_lines = source_to_lines source in
         extract_constants_from_module source_lines module_
+      | Error _ -> [])
+
+(** Extract logger bindings from parsed module.
+    These are assignments like: logger = logging.getLogger(__name__)
+    They depend on __name__ and must be replicated per-file. *)
+let extract_logger_bindings_from_module source_lines (mod_ : PyreAst.Concrete.Module.t) : logger_binding list =
+  let open PyreAst.Concrete in
+  let { Module.body; _ } = mod_ in
+  List.filter_map (fun stmt ->
+    match stmt with
+    | Statement.Assign { location; targets; value; _ } ->
+      (match targets with
+       | [Expression.Name { id; _ }] when is_logger_getname_call value ->
+         let var_name = Identifier.to_string id in
+         let loc = location_of_pyre location in
+         let source_text = extract_source_text source_lines loc in
+         Some { var_name; loc; source_text }
+       | _ -> None)
+    | Statement.AnnAssign { location; target; value = Some v; _ } when is_logger_getname_call v ->
+      (match target with
+       | Expression.Name { id; _ } ->
+         let var_name = Identifier.to_string id in
+         let loc = location_of_pyre location in
+         let source_text = extract_source_text source_lines loc in
+         Some { var_name; loc; source_text }
+       | _ -> None)
+    | _ -> None
+  ) body
+
+let extract_logger_bindings source : logger_binding list =
+  PyreAst.Parser.with_context
+    ~on_init_failure:(fun () -> [])
+    (fun ctx ->
+      let spec = PyreAst.Concrete.make_tagless_final () in
+      match PyreAst.Parser.TaglessFinal.parse_module ~context:ctx ~spec source with
+      | Ok module_ ->
+        let source_lines = source_to_lines source in
+        extract_logger_bindings_from_module source_lines module_
       | Error _ -> [])
 
 (** A top-level definition extracted from source *)
