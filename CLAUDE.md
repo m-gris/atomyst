@@ -1,5 +1,11 @@
 # Agent Instructions
 
+## Project Overview
+
+**atomyst** is an OCaml CLI that atomizes Python source files into one-definition-per-file structure. It extracts classes, functions, and constants into separate files with proper imports, making codebases more navigable for AI agents and humans alike.
+
+## Issue Tracking
+
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
 ## Quick Reference
