@@ -2,20 +2,22 @@
 
 open Types
 
-(** Grammar filename varies by platform. *)
-let grammar_file =
+(** Grammar filename varies by platform. Lazy to avoid running uname on module load. *)
+let grammar_file = lazy (
   let ic = Unix.open_process_in "uname -s" in
   let os = try input_line ic with End_of_file -> "Unknown" in
   let _ = Unix.close_process_in ic in
   if os = "Darwin" then "python.dylib" else "python.so"
+)
 
-(** Resource directory - detected at runtime.
+(** Resource directory - detected at runtime. Lazy to allow --help without grammar.
     Search order:
     1. ATOMYST_HOME environment variable
     2. Directory containing the binary (installed bundle)
     3. Walk up from cwd (development) *)
-let resource_dir =
-  let has_grammar dir = Sys.file_exists (Filename.concat dir grammar_file) in
+let resource_dir = lazy (
+  let grammar = Lazy.force grammar_file in
+  let has_grammar dir = Sys.file_exists (Filename.concat dir grammar) in
   match Sys.getenv_opt "ATOMYST_HOME" with
   | Some dir when has_grammar dir -> dir
   | _ ->
@@ -28,10 +30,11 @@ let resource_dir =
           let parent = Filename.dirname dir in
           if parent = dir then
             failwith (Printf.sprintf
-              "Cannot find %s. Set ATOMYST_HOME or install properly." grammar_file)
+              "Cannot find %s. Set ATOMYST_HOME or install properly." grammar)
           else find_root parent
       in
       find_root (Sys.getcwd ())
+)
 
 (** Run tree-sitter query on source and return raw output.
     Writes source to a temp file, runs tree-sitter query, returns stdout. *)
@@ -42,8 +45,9 @@ let _run_tree_sitter_query source =
   output_string oc source;
   close_out oc;
   (* Run tree-sitter query with absolute paths *)
-  let dylib = Filename.concat resource_dir "python.dylib" in
-  let query = Filename.concat resource_dir "queries/definitions.scm" in
+  let res_dir = Lazy.force resource_dir in
+  let dylib = Filename.concat res_dir "python.dylib" in
+  let query = Filename.concat res_dir "queries/definitions.scm" in
   let cmd = Printf.sprintf
     "tree-sitter query --lib-path %s --lang-name python %s %s 2>&1"
     (Filename.quote dylib)
